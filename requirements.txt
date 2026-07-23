@@ -1,0 +1,22 @@
+# --- Web framework ---
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9        # multipart/form-data (upload)
+
+# --- ORM / DB / migration ---
+SQLAlchemy>=2.0
+alembic>=1.13
+psycopg[binary]>=3.2           # PostgreSQL driver (SQLAlchemy: postgresql+psycopg://)
+
+# --- Cloud storage ---
+boto3>=1.34                    # S3-compatible / GCS bucket (STORAGE_BACKEND=s3)
+
+# --- Validation / config ---
+pydantic>=2.7
+pydantic-settings>=2.3
+email-validator>=2.1           # pydantic EmailStr
+
+# --- Auth / security ---
+PyJWT>=2.8                     # JWT access token
+bcrypt>=4.1                    # password hashing (used directly; passlib 1.7.4
+                               # is incompatible with bcrypt>=4.1 on Python 3.14)
