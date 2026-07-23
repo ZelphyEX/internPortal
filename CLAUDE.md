@@ -1,0 +1,166 @@
+# CLAUDE.md — Intern Portal
+
+> File này là "bộ não" của dự án cho Claude Code. Đọc kỹ trước khi làm bất cứ việc gì.
+> Nguồn sự thật đầy đủ về API nằm ở `docs/API_SPEC.md` (bản đặc tả đã chốt). Khi có mâu thuẫn, file đặc tả đó là chuẩn.
+
+---
+
+## 1. Dự án là gì
+
+Hệ thống **Intern Portal**: quản lý thực tập sinh (Intern), giao lộ trình học (Roadmap), theo dõi tiến độ real-time. Có 3 role: `ADMIN` > `MENTOR` > `INTERN`. `MENTOR` mặc định gồm toàn bộ quyền của Intern; `ADMIN` gồm toàn bộ quyền của Mentor.
+
+Tình trạng hiện tại: **repo trống**. Đã có sẵn (bên ngoài code):
+- 1 instance **PostgreSQL** (chưa có bảng nào).
+- 1 **bucket** để lưu file (ảnh đại diện, PDF tài liệu...).
+
+Nhiệm vụ đầu tiên là dựng backend + tạo bảng bằng migration, KHÔNG tạo bảng thủ công trong DB.
+
+---
+
+## 2. Tech stack (đã CHỐT — không tự đổi)
+
+| Layer | Công nghệ |
+|---|---|
+| Backend | **FastAPI (Python 3.11+)** |
+| ORM | **SQLAlchemy 2.0** (style mới) |
+| Migration | **Alembic** |
+| Validation | **Pydantic v2** |
+| Auth | **JWT** (access + refresh token) |
+| DB | **PostgreSQL** |
+| Storage | Bucket (S3-compatible / GCS) — cấu hình qua env |
+
+> Đây là repo **backend-only**. Không có code frontend ở đây. Frontend là dự án riêng, chỉ gọi vào API này qua HTTP.
+
+Quản lý package Python bằng `venv` + `requirements.txt` (hoặc `uv` nếu có). Password hash bằng `passlib[bcrypt]`. JWT bằng `python-jose` hoặc `pyjwt`.
+
+---
+
+## 3. Cấu trúc thư mục mục tiêu
+
+Code nằm ngay ở gốc repo (repo này CHÍNH LÀ backend, không lồng trong `backend/`).
+
+```
+.
+├── app/
+│   ├── main.py               # khởi tạo FastAPI, mount router, CORS
+│   ├── core/
+│   │   ├── config.py         # đọc env (Settings, pydantic-settings)
+│   │   ├── security.py       # hash password, tạo/verify JWT
+│   │   └── deps.py           # get_db, get_current_user, require_role()
+│   ├── db/
+│   │   ├── base.py           # Base declarative + import models
+│   │   └── session.py        # engine + SessionLocal
+│   ├── models/               # SQLAlchemy models (1 file / bảng hoặc gom hợp lý)
+│   ├── schemas/              # Pydantic request/response
+│   ├── api/v1/routers/       # auth, users, groups, documents, tags,
+│   │                         # roadmaps, modules, assignments, learning,
+│   │                         # dashboard, comments
+│   └── services/             # business logic (KHÔNG nhét logic vào router)
+├── alembic/                  # migrations
+├── alembic.ini
+├── tests/
+├── docs/
+│   └── API_SPEC.md           # bản đặc tả API đầy đủ (nguồn sự thật)
+├── requirements.txt
+├── .env                      # KHÔNG commit
+├── .env.example
+└── CLAUDE.md
+```
+
+Cho phép **CORS** để frontend (chạy ở origin/domain khác) gọi được vào API.
+
+---
+
+## 4. DATABASE SCHEMA (bám sát để tạo models + migration)
+
+Kiểu dữ liệu: `id` = BigInteger PK auto-increment. Mọi bảng có `created_at`, và bảng nào sửa được thì có `updated_at` (đều `TIMESTAMPTZ`, UTC).
+
+- **users**: `id`, `full_name`, `email` (UNIQUE), `password_hash`, `role` ENUM(`ADMIN`,`MENTOR`,`INTERN`) default `INTERN`, `status` ENUM(`ACTIVE`,`LOCKED`) default `ACTIVE`, `avatar_url` (nullable), `deleted_at` (nullable — soft delete), `created_at`, `updated_at`.
+- **refresh_tokens**: `id`, `user_id` → users, `token_hash` (LƯU HASH, không lưu token thô), `expires_at`, `revoked_at` (nullable), `created_at`.
+- **groups**: `id`, `name`, `cohort` (nullable), `description` (nullable), `created_at`, `updated_at`.
+- **group_members** (N-N user↔group): `id`, `group_id` → groups, `user_id` → users, `joined_at`. **UNIQUE(`group_id`,`user_id`)**. Một Intern có thể thuộc nhiều nhóm.
+- **documents**: `id`, `title`, `description` (nullable), `content_url`, `type` ENUM(`VIDEO`,`PDF`,`LINK`,`ARTICLE`), `created_at`, `updated_at`.
+- **tags**: `id`, `name` (UNIQUE).
+- **document_tags** (N-N): `document_id` → documents, `tag_id` → tags. PK kép (`document_id`,`tag_id`).
+- **roadmaps**: `id`, `title`, `description` (nullable), `created_at`, `updated_at`.
+- **modules** (Chặng): `id`, `roadmap_id` → roadmaps, `title`, `description` (nullable), `position` (int, để sắp xếp), `created_at`, `updated_at`.
+- **module_documents** (Bài học = document gán vào chặng): `id`, `module_id` → modules, `document_id` → documents, `position` (int), `created_at`.
+  - ⚠️ `module_documents.id` chính là **`module_document_id`** dùng cho đánh dấu hoàn thành và comment.
+- **roadmap_assignments** (lượt gán lộ trình): `id`, `roadmap_id` → roadmaps, `user_id` → users, `status` ENUM(`IN_PROGRESS`,`COMPLETED`) default `IN_PROGRESS`, `source_group_id` → groups (nullable — nếu gán qua nhóm), `assigned_at`. **UNIQUE(`roadmap_id`,`user_id`)** để chống gán trùng.
+  - ⚠️ `roadmap_assignments.id` chính là **`assignment_id`**.
+- **lesson_progress**: `id`, `assignment_id` → roadmap_assignments, `module_document_id` → module_documents, `completed` (bool), `completed_at` (nullable). **UNIQUE(`assignment_id`,`module_document_id`)**.
+- **comments**: `id`, `module_document_id` → module_documents, `user_id` → users, `content`, `parent_comment_id` → comments (nullable, self-ref cho reply), `created_at`, `updated_at`.
+
+**Cách tính % tiến độ:** `progress_percent = completed_lessons / total_lessons * 100`, với `total_lessons` = tổng số `module_documents` của roadmap tương ứng. Tính lại mỗi lần mark/unmark. Khi tất cả bài `completed` → tự set `roadmap_assignments.status = COMPLETED`.
+
+---
+
+## 5. Quy ước API (bắt buộc)
+
+- Base URL: **`/api/v1`**. FastAPI tự sinh Swagger tại `/docs`.
+- Auth header: `Authorization: Bearer <access_token>`.
+- Login trả `access_token` (JWT ngắn hạn) + `refresh_token` (dài hạn, lưu **hash** trong `refresh_tokens`). Hết hạn → gọi `/auth/refresh`.
+- Phân trang: query `?page=1&size=20`. Response: `{ "items": [], "total", "page", "size", "pages" }`.
+- Định dạng lỗi: `{ "detail": "..." }`.
+- Mã trạng thái: 200 OK, 201 Created, 204 No Content, 400, 401 (chưa/hết hạn token), 403 (thiếu quyền), 404, 409 (trùng dữ liệu), 422 (sai kiểu — FastAPI tự validate).
+- Thời gian: ISO 8601 UTC, ví dụ `2026-07-22T09:30:00Z`.
+
+Danh sách endpoint đầy đủ + ví dụ request/response: xem `docs/API_SPEC.md`.
+
+---
+
+## 6. LUẬT BẢO MẬT (IMPORTANT — không được vi phạm)
+
+- **IMPORTANT:** Kiểm tra quyền ở MỌI endpoint bằng dependency (vd `require_role(MENTOR)`). **KHÔNG BAO GIỜ tin frontend.**
+- **IMPORTANT:** Với endpoint `/me/...`, luôn kiểm tra tài nguyên thuộc về user trong token. Intern không được xem dữ liệu người khác (sai → 403).
+- **IMPORTANT:** Không lưu token/password dạng thô. Password → bcrypt hash. Refresh token → lưu hash.
+- **IMPORTANT:** Mọi thao tác hàng loạt (`assign-group`, thêm nhiều thành viên) phải chạy trong **1 transaction** và **bỏ qua bản ghi trùng** thay vì báo lỗi.
+- Xóa user và document theo yêu cầu là **soft delete** (`deleted_at`), không xóa vật lý.
+- Secrets chỉ nằm trong `.env`. **KHÔNG commit `.env`**; luôn có `.env.example`.
+
+---
+
+## 7. Quy tắc làm việc với DB & code
+
+- **KHÔNG tạo/sửa bảng thủ công trong PostgreSQL.** Mọi thay đổi schema đi qua Alembic: sửa model → `alembic revision --autogenerate -m "..."` → kiểm tra file migration → `alembic upgrade head`.
+- Không nhét business logic vào router — để trong `services/`. Router chỉ nhận request, gọi service, trả response.
+- Mỗi model có Pydantic schema riêng cho Request và Response. Không trả `password_hash` ra ngoài.
+- Viết code chạy được rồi mới báo xong; nếu thêm dependency, cập nhật `requirements.txt`.
+
+---
+
+## 8. Lệnh hay dùng (cập nhật khi có)
+
+```bash
+# Chạy từ gốc repo
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+alembic upgrade head
+uvicorn app.main:app --reload            # chạy dev, mở http://localhost:8000/docs
+
+# Migration mới
+alembic revision --autogenerate -m "add xxx"
+alembic upgrade head
+
+# Test
+pytest
+```
+
+---
+
+## 9. THỨ TỰ BUILD (làm lần lượt, không nhảy cóc)
+
+1. Scaffold ở gốc repo: `app/core/config.py` (đọc env), `app/db/session.py`, `app/db/base.py`, `app/main.py`, cài Alembic + trỏ tới DATABASE_URL.
+2. Viết **toàn bộ models** ở mục 4 → tạo migration đầu tiên → `upgrade head` (kiểm tra bảng đã lên DB).
+3. `core/security.py` + `core/deps.py`: hash password, JWT, `get_current_user`, `require_role()`.
+4. **Auth**: register (chỉ tạo INTERN), login, refresh, logout, `GET/PATCH /auth/me`, change-password.
+5. **Users** (Mentor/Admin): list + search + pagination, create mentor (ADMIN), detail, lock/unlock, soft delete.
+6. **Groups** + members (thêm nhiều / kick).
+7. **Documents** + upload (bucket) + **Tags**.
+8. **Roadmaps** → **Modules** → gán document vào chặng (`module_documents`).
+9. **Assignments**: gán cá nhân + `assign-group` (bulk, transaction).
+10. **Learning**: `/me/roadmaps`, mark/unmark complete, tính % real-time.
+11. **Comments** (có reply lồng nhau).
+12. **Dashboard**: `/dashboard/me`, `/dashboard/overview`, `/dashboard/roadmaps/{id}`.
+
+Sau mỗi bước: chạy thử trên `/docs`, xác nhận không lỗi, rồi mới sang bước tiếp theo. Khi xong toàn bộ, Swagger tại `/docs` chính là "hợp đồng" để phía frontend gọi API.
