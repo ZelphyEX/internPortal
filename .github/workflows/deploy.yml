@@ -21,6 +21,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Validate required secrets/vars
+        run: |
+          missing=()
+          [ -z "${{ vars.GCP_PROJECT_ID }}" ] && missing+=("vars.GCP_PROJECT_ID")
+          [ -z "${{ secrets.WIF_PROVIDER }}" ] && missing+=("secrets.WIF_PROVIDER")
+          [ -z "${{ vars.WIF_SERVICE_ACCOUNT }}" ] && missing+=("vars.WIF_SERVICE_ACCOUNT")
+          [ -z "${{ secrets.CLOUD_SQL_CONNECTION_NAME }}" ] && missing+=("secrets.CLOUD_SQL_CONNECTION_NAME")
+          [ -z "${{ secrets.DATABASE_URL }}" ] && missing+=("secrets.DATABASE_URL")
+          [ -z "${{ secrets.JWT_SECRET }}" ] && missing+=("secrets.JWT_SECRET")
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Missing required GitHub secrets/variables: ${missing[*]}. Set them in Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
       - name: Authenticate to Google Cloud (WIF)
         id: auth
         uses: google-github-actions/auth@v3
