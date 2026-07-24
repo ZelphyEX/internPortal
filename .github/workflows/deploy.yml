@@ -39,7 +39,7 @@ jobs:
 
       - name: Build & push image
         run: |
-          IMAGE="${REGION}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${REPO}/${SERVICE}"
+          IMAGE="${REGION}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${REPO}/${SERVICE}"
           docker build -t "${IMAGE}:${{ github.sha }}" -t "${IMAGE}:latest" .
           docker push "${IMAGE}:${{ github.sha }}"
           docker push "${IMAGE}:latest"
