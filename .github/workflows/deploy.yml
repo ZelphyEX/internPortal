@@ -30,6 +30,7 @@ jobs:
           [ -z "${{ secrets.CLOUD_SQL_CONNECTION_NAME }}" ] && missing+=("secrets.CLOUD_SQL_CONNECTION_NAME")
           [ -z "${{ secrets.DATABASE_URL }}" ] && missing+=("secrets.DATABASE_URL")
           [ -z "${{ secrets.JWT_SECRET }}" ] && missing+=("secrets.JWT_SECRET")
+          [ -z "${{ vars.GCS_BUCKET }}" ] && missing+=("vars.GCS_BUCKET")
           if [ "${#missing[@]}" -gt 0 ]; then
             echo "::error::Missing required GitHub secrets/variables: ${missing[*]}. Set them in Settings > Secrets and variables > Actions."
             exit 1
@@ -66,13 +67,19 @@ jobs:
           region: ${{ env.REGION }}
           image: ${{ env.IMAGE }}
           # Cloud SQL socket + public access; app listens on $PORT (8080).
+          # NOTE: uploads authenticate to GCS as the service's *runtime* service
+          # account (the Compute Engine default SA unless --service-account is
+          # set here); it needs roles/storage.objectAdmin on GCS_BUCKET.
           flags: >-
             --allow-unauthenticated
             --add-cloudsql-instances=${{ secrets.CLOUD_SQL_CONNECTION_NAME }}
             --port=8080
           # App runtime env (values come from GitHub Secrets — names only here).
           # App reads the JWT secret from SECRET_KEY; GitHub secret is JWT_SECRET.
-          # Add storage/bucket vars below once GCS is wired.
+          # GCS needs no keys: the Cloud Run service account provides ADC.
           env_vars: |
             DATABASE_URL=${{ secrets.DATABASE_URL }}
             SECRET_KEY=${{ secrets.JWT_SECRET }}
+            STORAGE_BACKEND=gcs
+            GCS_BUCKET=${{ vars.GCS_BUCKET }}
+            GCS_PROJECT_ID=${{ vars.GCP_PROJECT_ID }}

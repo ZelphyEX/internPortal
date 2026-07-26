@@ -31,13 +31,28 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # --- Cloud storage (bucket) ---
-    STORAGE_BACKEND: str = "local"            # "local" (dev) | "s3" (S3-compatible / GCS)
+    # "local" (dev) | "gcs" (Google Cloud Storage) | "s3" (S3-compatible)
+    STORAGE_BACKEND: str = "local"
     STORAGE_LOCAL_DIR: str = "./storage"      # where local-mode files are written
     # Base URL prepended to a stored file's name to form its content_url.
     # local dev: served by the /files StaticFiles mount (see app.main).
     STORAGE_PUBLIC_BASE_URL: str = "/files"
     MAX_UPLOAD_MB: int = 25                   # reject larger uploads with 413
-    # S3 / GCS (used when STORAGE_BACKEND=s3)
+
+    # Google Cloud Storage (used when STORAGE_BACKEND=gcs).
+    # Auth is Application Default Credentials — no keys in env:
+    #   * Cloud Run: the service account attached to the service.
+    #   * local dev: `gcloud auth application-default login`, or point
+    #     GOOGLE_APPLICATION_CREDENTIALS at a service-account JSON key.
+    GCS_BUCKET: str = ""
+    GCS_PROJECT_ID: str = ""                  # optional; inferred from ADC if empty
+    GCS_PREFIX: str = "uploads"               # object name prefix ("folder"); "" = bucket root
+    # Public base for the returned content_url. Empty -> https://storage.googleapis.com/<bucket>.
+    # Set this when serving the bucket through a CDN / custom domain.
+    GCS_PUBLIC_URL_BASE: str = ""
+    GCS_CACHE_CONTROL: str = "public, max-age=31536000"   # uploads are immutable (random names)
+
+    # S3 / MinIO / GCS XML API (used when STORAGE_BACKEND=s3)
     S3_ENDPOINT_URL: str = ""                 # e.g. https://storage.googleapis.com
     S3_BUCKET: str = ""
     S3_ACCESS_KEY: str = ""

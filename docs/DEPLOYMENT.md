@@ -22,8 +22,9 @@
 - `WIF_PROVIDER` — resource name của Workload Identity Provider
 - `WIF_SERVICE_ACCOUNT` — email service account deploy
 - `CLOUD_SQL_CONNECTION_NAME` — connection name Cloud SQL, dạng `PROJECT:REGION:INSTANCE`
-- `DATABASE_URL`, `JWT_SECRET`, và biến bucket — biến chạy app, inject vào Cloud Run lúc deploy.
+- `DATABASE_URL`, `JWT_SECRET` — biến chạy app, inject vào Cloud Run lúc deploy.
   - App đọc JWT secret ở env **`SECRET_KEY`**; workflow map `SECRET_KEY = ${{ secrets.JWT_SECRET }}`.
+- `GCS_BUCKET` (**variable**, không phải secret) — tên bucket lưu file upload. Workflow set sẵn `STORAGE_BACKEND=gcs`; **không có key bucket nào** vì GCS xác thực bằng service account của Cloud Run.
   - Cloud SQL: `DATABASE_URL` dùng dạng **socket** (không dùng IP):
     `postgresql+psycopg://<user>:<password>@/<db>?host=/cloudsql/PROJECT:REGION:INSTANCE`
 
@@ -35,6 +36,17 @@
 - [ ] Bật API: `run`, `artifactregistry`, `iam`, `sts`, `iamcredentials`.
 - [ ] Tạo Artifact Registry repo (Docker, đúng region ở mục 1).
 - [ ] Tạo Service Account, gán role: **Artifact Registry Writer**, **Cloud Run Developer**, **Service Account User**, **Cloud SQL Client** (DB là Cloud SQL).
+- [ ] **Bucket (GCS)** — service account mà Cloud Run *chạy dưới* cần quyền ghi, và bucket cần cho phép đọc public:
+      ```bash
+      # ghi: service account của Cloud Run runtime
+      gcloud storage buckets add-iam-policy-binding gs://<BUCKET> \
+        --member=serviceAccount:<RUNTIME_SA_EMAIL> --role=roles/storage.objectAdmin
+      # đọc: bất kỳ ai (content_url là URL public)
+      gcloud storage buckets add-iam-policy-binding gs://<BUCKET> \
+        --member=allUsers --role=roles/storage.objectViewer
+      ```
+      Nếu bucket bật *Public access prevention* thì phải tắt, nếu không URL public sẽ trả 403.
+- [ ] Bật API `storage.googleapis.com`, và thêm GitHub **variable** `GCS_BUCKET`.
 - [ ] Tạo Workload Identity Pool + Provider (OIDC, issuer `https://token.actions.githubusercontent.com`), giới hạn đúng repo, bind vào Service Account.
 - [ ] Thêm GitHub Secrets ở mục 1.
 - [ ] `git remote add origin <URL>` và push lần đầu.
