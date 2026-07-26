@@ -1,0 +1,85 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [main]
+
+# Required for Workload Identity Federation (OIDC token).
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  REGION: asia-southeast1
+  SERVICE: intern-portal-api
+  REPO: intern-portal-repo
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Validate required secrets/vars
+        run: |
+          missing=()
+          [ -z "${{ vars.GCP_PROJECT_ID }}" ] && missing+=("vars.GCP_PROJECT_ID")
+          [ -z "${{ secrets.WIF_PROVIDER }}" ] && missing+=("secrets.WIF_PROVIDER")
+          [ -z "${{ vars.WIF_SERVICE_ACCOUNT }}" ] && missing+=("vars.WIF_SERVICE_ACCOUNT")
+          [ -z "${{ secrets.CLOUD_SQL_CONNECTION_NAME }}" ] && missing+=("secrets.CLOUD_SQL_CONNECTION_NAME")
+          [ -z "${{ secrets.DATABASE_URL }}" ] && missing+=("secrets.DATABASE_URL")
+          [ -z "${{ secrets.JWT_SECRET }}" ] && missing+=("secrets.JWT_SECRET")
+          [ -z "${{ vars.GCS_BUCKET }}" ] && missing+=("vars.GCS_BUCKET")
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Missing required GitHub secrets/variables: ${missing[*]}. Set them in Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+      - name: Authenticate to Google Cloud (WIF)
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_SERVICE_ACCOUNT }}
+          token_format: access_token
+
+      - name: Log in to Artifact Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGION }}-docker.pkg.dev
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+
+      - name: Build & push image
+        run: |
+          IMAGE="${REGION}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${REPO}/${SERVICE}"
+          docker build -t "${IMAGE}:${{ github.sha }}" -t "${IMAGE}:latest" .
+          docker push "${IMAGE}:${{ github.sha }}"
+          docker push "${IMAGE}:latest"
+          echo "IMAGE=${IMAGE}:${{ github.sha }}" >> "$GITHUB_ENV"
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v3
+        with:
+          service: ${{ env.SERVICE }}
+          region: ${{ env.REGION }}
+          image: ${{ env.IMAGE }}
+          # Cloud SQL socket + public access; app listens on $PORT (8080).
+          # NOTE: uploads authenticate to GCS as the service's *runtime* service
+          # account (the Compute Engine default SA unless --service-account is
+          # set here); it needs roles/storage.objectAdmin on GCS_BUCKET.
+          flags: >-
+            --allow-unauthenticated
+            --add-cloudsql-instances=${{ secrets.CLOUD_SQL_CONNECTION_NAME }}
+            --port=8080
+          # App runtime env (values come from GitHub Secrets — names only here).
+          # App reads the JWT secret from SECRET_KEY; GitHub secret is JWT_SECRET.
+          # GCS needs no keys: the Cloud Run service account provides ADC.
+          env_vars: |
+            DATABASE_URL=${{ secrets.DATABASE_URL }}
+            SECRET_KEY=${{ secrets.JWT_SECRET }}
+            STORAGE_BACKEND=gcs
+            GCS_BUCKET=${{ vars.GCS_BUCKET }}
+            GCS_PROJECT_ID=${{ vars.GCP_PROJECT_ID }}
