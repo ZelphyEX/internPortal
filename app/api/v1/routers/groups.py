@@ -4,7 +4,13 @@ from typing import Annotated
 from fastapi import APIRouter, Query, status
 
 from app.core.deps import DbSession, MentorRequired
-from app.core.pagination import DEFAULT_PAGE, DEFAULT_SIZE, MAX_SIZE, paginate
+from app.core.pagination import (
+    DEFAULT_PAGE,
+    DEFAULT_SIZE,
+    PageQuery,
+    SizeQuery,
+    paginate,
+)
 from app.schemas.common import Page
 from app.schemas.group import (
     AddMembersRequest,
@@ -23,8 +29,8 @@ router = APIRouter(prefix="/groups", tags=["groups"])
 def list_groups(
     db: DbSession,
     current_user: MentorRequired,
-    page: Annotated[int, Query(ge=1)] = DEFAULT_PAGE,
-    size: Annotated[int, Query(ge=1, le=MAX_SIZE)] = DEFAULT_SIZE,
+    page: PageQuery = DEFAULT_PAGE,
+    size: SizeQuery = DEFAULT_SIZE,
     search: Annotated[str | None, Query(description="search in name")] = None,
     cohort: Annotated[str | None, Query()] = None,
 ) -> Page[GroupOut]:

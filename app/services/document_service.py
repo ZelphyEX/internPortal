@@ -7,19 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.models.document import Document, DocumentType, Tag
 from app.schemas.document import DocumentCreate, DocumentOut, DocumentUpdate
-
-
-def _resolve_tags(db: Session, tag_ids: list[int]) -> list[Tag]:
-    if not tag_ids:
-        return []
-    tags = db.scalars(select(Tag).where(Tag.id.in_(tag_ids))).all()
-    missing = set(tag_ids) - {t.id for t in tags}
-    if missing:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unknown tag_ids: {sorted(missing)}",
-        )
-    return list(tags)
+from app.services.tag_service import resolve_tags as _resolve_tags
 
 
 def to_out(doc: Document) -> DocumentOut:

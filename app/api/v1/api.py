@@ -8,12 +8,15 @@ from app.api.v1.routers import (
     assignments,
     auth,
     comments,
+    daily_reports,
     dashboard,
     documents,
     groups,
     learning,
+    projects,
     roadmaps,
     tags,
+    tasks,
     users,
 )
 
@@ -33,3 +36,8 @@ api_router.include_router(assignments.router)
 api_router.include_router(learning.router)
 api_router.include_router(comments.router)
 api_router.include_router(dashboard.router)
+
+# --- Phase 3: Projects / Tasks / Daily reports (docs/backend-requirements.md) ---
+api_router.include_router(projects.router)
+api_router.include_router(tasks.router)
+api_router.include_router(daily_reports.router)

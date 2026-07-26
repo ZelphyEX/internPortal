@@ -118,7 +118,16 @@ def get_my_roadmap_detail(db: Session, user: User, assignment_id: int) -> MyRoad
                 )
             )
         modules.append(
-            ModuleWithLessons(id=m.id, title=m.title, position=m.position, lessons=lessons)
+            ModuleWithLessons(
+                id=m.id,
+                title=m.title,
+                position=m.position,
+                track=m.track,
+                week_number=m.week_number,
+                duration_text=m.duration_text,
+                key_skills=m.key_skills or [],
+                lessons=lessons,
+            )
         )
     return MyRoadmapDetail(
         assignment_id=a.id,

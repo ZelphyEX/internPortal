@@ -1,7 +1,8 @@
 """Comment business logic (API_SPEC mục 10).
 
 Threading: a comment may reference a parent (same lesson) for nested replies.
-Permissions: only the author may edit; the author OR a MENTOR/ADMIN may delete.
+Permissions: only the author may edit; the author OR a MENTOR/ADMIN may delete;
+only a MENTOR/ADMIN may resolve (`is_resolved`).
 Deleting a comment removes its whole reply subtree.
 """
 from fastapi import HTTPException, status
@@ -11,7 +12,20 @@ from sqlalchemy.orm import Session
 from app.models.comment import Comment
 from app.models.roadmap import ModuleDocument
 from app.models.user import Role, User
-from app.schemas.comment import CommentOut, CommentUser
+from app.schemas.comment import CommentOut, CommentUpdate, CommentUser
+
+
+def _to_out(c: Comment, full_name: str) -> CommentOut:
+    """Serialize one comment (replies are attached by the caller)."""
+    return CommentOut(
+        id=c.id,
+        user=CommentUser(id=c.user_id, full_name=full_name),
+        content=c.content,
+        code_snippet=c.code_snippet,
+        is_resolved=c.is_resolved,
+        created_at=c.created_at,
+        replies=[],
+    )
 
 
 def _ensure_lesson(db: Session, module_document_id: int) -> None:
@@ -36,15 +50,7 @@ def list_comments(db: Session, module_document_id: int) -> list[CommentOut]:
         .order_by(Comment.created_at, Comment.id)
     ).all()
 
-    nodes: dict[int, CommentOut] = {}
-    for c, full_name in rows:
-        nodes[c.id] = CommentOut(
-            id=c.id,
-            user=CommentUser(id=c.user_id, full_name=full_name),
-            content=c.content,
-            created_at=c.created_at,
-            replies=[],
-        )
+    nodes: dict[int, CommentOut] = {c.id: _to_out(c, full_name) for c, full_name in rows}
     roots: list[CommentOut] = []
     for c, _ in rows:
         node = nodes[c.id]
@@ -58,7 +64,7 @@ def list_comments(db: Session, module_document_id: int) -> list[CommentOut]:
 
 def create_comment(
     db: Session, user: User, module_document_id: int,
-    content: str, parent_comment_id: int | None,
+    content: str, parent_comment_id: int | None, code_snippet: str | None = None,
 ) -> CommentOut:
     _ensure_lesson(db, module_document_id)
     if parent_comment_id is not None:
@@ -72,35 +78,36 @@ def create_comment(
         module_document_id=module_document_id,
         user_id=user.id,
         content=content,
+        code_snippet=code_snippet,
         parent_comment_id=parent_comment_id,
     )
     db.add(c)
     db.commit()
     db.refresh(c)
-    return CommentOut(
-        id=c.id,
-        user=CommentUser(id=user.id, full_name=user.full_name),
-        content=c.content,
-        created_at=c.created_at,
-        replies=[],
-    )
+    return _to_out(c, user.full_name)
 
 
-def update_comment(db: Session, user: User, comment: Comment, content: str) -> CommentOut:
+def update_comment(
+    db: Session, user: User, comment: Comment, data: CommentUpdate,
+) -> CommentOut:
     if comment.user_id != user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="You can only edit your own comment",
         )
-    comment.content = content
+    for key, value in data.model_dump(exclude_unset=True).items():
+        setattr(comment, key, value)
     db.commit()
     db.refresh(comment)
-    return CommentOut(
-        id=comment.id,
-        user=CommentUser(id=comment.user_id, full_name=user.full_name),
-        content=comment.content,
-        created_at=comment.created_at,
-        replies=[],
-    )
+    return _to_out(comment, user.full_name)
+
+
+def set_resolved(db: Session, comment: Comment, is_resolved: bool) -> CommentOut:
+    """MENTOR/ADMIN only (enforced by the router) — separate from editing."""
+    comment.is_resolved = is_resolved
+    db.commit()
+    db.refresh(comment)
+    author_name = db.scalar(select(User.full_name).where(User.id == comment.user_id)) or ""
+    return _to_out(comment, author_name)
 
 
 def delete_comment(db: Session, user: User, comment: Comment) -> None:

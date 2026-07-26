@@ -54,7 +54,8 @@ Code nằm ngay ở gốc repo (repo này CHÍNH LÀ backend, không lồng tron
 │   ├── schemas/              # Pydantic request/response
 │   ├── api/v1/routers/       # auth, users, groups, documents, tags,
 │   │                         # roadmaps, modules, assignments, learning,
-│   │                         # dashboard, comments
+│   │                         # dashboard, comments, projects, tasks,
+│   │                         # daily_reports
 │   └── services/             # business logic (KHÔNG nhét logic vào router)
 ├── alembic/                  # migrations
 ├── alembic.ini
@@ -76,6 +77,8 @@ Cho phép **CORS** để frontend (chạy ở origin/domain khác) gọi đượ
 Kiểu dữ liệu: `id` = BigInteger PK auto-increment. Mọi bảng có `created_at`, và bảng nào sửa được thì có `updated_at` (đều `TIMESTAMPTZ`, UTC).
 
 - **users**: `id`, `full_name`, `email` (UNIQUE), `password_hash`, `role` ENUM(`ADMIN`,`MENTOR`,`INTERN`) default `INTERN`, `status` ENUM(`ACTIVE`,`LOCKED`) default `ACTIVE`, `avatar_url` (nullable), `deleted_at` (nullable — soft delete), `created_at`, `updated_at`.
+  - Hồ sơ Intern (tất cả nullable, chỉ có ý nghĩa với `role=INTERN` — sửa qua `PATCH /users/{id}/profile`, quyền MENTOR): `department` ENUM `department`, `mentor_id` → users (self-FK, phải là MENTOR/ADMIN), `phone`, `start_date`, `end_date` (DATE), `university`, `major`, `bio`, `github_url`, `score` NUMERIC(5,2), `attendance_rate` NUMERIC(5,2).
+  - ENUM **`department`** (dùng chung cho `users.department`, `modules.track`, `projects.department`): `Java Back-End`, `React Front-End`, `Cloud & DevOps`, `Salesforce/ERP`, `AI & Data Science`. Giá trị enum = đúng nhãn frontend hiển thị (đã chốt với FE) → không cần lớp map.
 - **refresh_tokens**: `id`, `user_id` → users, `token_hash` (LƯU HASH, không lưu token thô), `expires_at`, `revoked_at` (nullable), `created_at`.
 - **groups**: `id`, `name`, `cohort` (nullable), `description` (nullable), `created_at`, `updated_at`.
 - **group_members** (N-N user↔group): `id`, `group_id` → groups, `user_id` → users, `joined_at`. **UNIQUE(`group_id`,`user_id`)**. Một Intern có thể thuộc nhiều nhóm.
@@ -84,12 +87,18 @@ Kiểu dữ liệu: `id` = BigInteger PK auto-increment. Mọi bảng có `creat
 - **document_tags** (N-N): `document_id` → documents, `tag_id` → tags. PK kép (`document_id`,`tag_id`).
 - **roadmaps**: `id`, `title`, `description` (nullable), `created_at`, `updated_at`.
 - **modules** (Chặng): `id`, `roadmap_id` → roadmaps, `title`, `description` (nullable), `position` (int, để sắp xếp), `created_at`, `updated_at`.
+  - Metadata course card (FE cần, nullable): `track` ENUM `department`, `week_number` (int), `duration_text` (String(100), text tự do vd "2 tuần"), `key_skills` JSONB NOT NULL default `'[]'`.
 - **module_documents** (Bài học = document gán vào chặng): `id`, `module_id` → modules, `document_id` → documents, `position` (int), `created_at`.
   - ⚠️ `module_documents.id` chính là **`module_document_id`** dùng cho đánh dấu hoàn thành và comment.
 - **roadmap_assignments** (lượt gán lộ trình): `id`, `roadmap_id` → roadmaps, `user_id` → users, `status` ENUM(`IN_PROGRESS`,`COMPLETED`) default `IN_PROGRESS`, `source_group_id` → groups (nullable — nếu gán qua nhóm), `assigned_at`. **UNIQUE(`roadmap_id`,`user_id`)** để chống gán trùng.
   - ⚠️ `roadmap_assignments.id` chính là **`assignment_id`**.
 - **lesson_progress**: `id`, `assignment_id` → roadmap_assignments, `module_document_id` → module_documents, `completed` (bool), `completed_at` (nullable). **UNIQUE(`assignment_id`,`module_document_id`)**.
-- **comments**: `id`, `module_document_id` → module_documents, `user_id` → users, `content`, `parent_comment_id` → comments (nullable, self-ref cho reply), `created_at`, `updated_at`.
+- **comments**: `id`, `module_document_id` → module_documents, `user_id` → users, `content`, `code_snippet` (nullable — đoạn code đính kèm), `is_resolved` (bool NOT NULL default false — chỉ MENTOR đổi qua `PATCH /comments/{id}/resolve`), `parent_comment_id` → comments (nullable, self-ref cho reply), `created_at`, `updated_at`.
+- **projects** (Dự án): `id`, `code` (UNIQUE), `title`, `department` ENUM `department` (nullable), `status` ENUM `project_status`(`In Planning`,`Active`,`Under Review`,`Completed`) default `In Planning`, `lead_user_id` → users (nullable), `progress_percent` (int, mentor tự cập nhật — KHÔNG suy ra từ tasks), `deadline` (DATE nullable), `description` (nullable), `deleted_at` (nullable — **soft delete** vì tasks còn tham chiếu), `created_at`, `updated_at`.
+- **project_members** (N-N user↔project): `id`, `project_id` → projects, `user_id` → users, `joined_at`. **UNIQUE(`project_id`,`user_id`)**.
+- **project_tags** (N-N, dùng chung bảng `tags` với documents): PK kép (`project_id`,`tag_id`).
+- **tasks**: `id`, `title`, `project_id` → projects (nullable), `assigned_intern_id` → users (nullable), `mentor_id` → users (nullable), `status` ENUM `task_status`(`To Do`,`In Progress`,`In Review`,`Done`,`Blocked`) default `To Do`, `priority` ENUM `task_priority`(`Low`,`Medium`,`High`,`Urgent`) default `Medium`, `due_date` (DATE nullable), `description` (nullable), `pr_url` (nullable), `mentor_feedback` (nullable — chỉ MENTOR ghi), `completed_at` (nullable — backend tự set khi `status=Done`, xóa khi rời `Done`), `created_at`, `updated_at`.
+- **daily_reports**: `id`, `intern_id` → users, `date` (DATE), `completed_today`, `tomorrow_plan` (nullable), `blockers` (nullable), `hours_logged` NUMERIC(4,2) (nullable), `status` ENUM `daily_report_status`(`Pending`,`Approved`,`Needs Revision`) default `Pending`, `mentor_comment` (nullable), `rating` (int 1..5 nullable), `reviewed_by` → users (nullable), `reviewed_at` (nullable), `created_at`, `updated_at`. **UNIQUE(`intern_id`,`date`)** — 1 báo cáo / người / ngày.
 
 **Cách tính % tiến độ:** `progress_percent = completed_lessons / total_lessons * 100`, với `total_lessons` = tổng số `module_documents` của roadmap tương ứng. Tính lại mỗi lần mark/unmark. Khi tất cả bài `completed` → tự set `roadmap_assignments.status = COMPLETED`.
 
@@ -113,6 +122,7 @@ Danh sách endpoint đầy đủ + ví dụ request/response: xem `docs/API_SPEC
 
 - **IMPORTANT:** Kiểm tra quyền ở MỌI endpoint bằng dependency (vd `require_role(MENTOR)`). **KHÔNG BAO GIỜ tin frontend.**
 - **IMPORTANT:** Với endpoint `/me/...`, luôn kiểm tra tài nguyên thuộc về user trong token. Intern không được xem dữ liệu người khác (sai → 403).
+- **IMPORTANT:** Các list endpoint dùng chung cho cả 2 role (`/projects`, `/tasks`, `/daily-reports`) phải **tự thu hẹp phạm vi theo role trong service**, KHÔNG dựa vào filter client gửi lên: INTERN chỉ thấy dự án mình là lead/thành viên, task được gán cho mình, báo cáo của mình — kể cả khi client truyền `assigned_intern_id`/`intern_id` của người khác.
 - **IMPORTANT:** Không lưu token/password dạng thô. Password → bcrypt hash. Refresh token → lưu hash.
 - **IMPORTANT:** Mọi thao tác hàng loạt (`assign-group`, thêm nhiều thành viên) phải chạy trong **1 transaction** và **bỏ qua bản ghi trùng** thay vì báo lỗi.
 - Xóa user và document theo yêu cầu là **soft delete** (`deleted_at`), không xóa vật lý.
@@ -162,5 +172,6 @@ pytest
 10. **Learning**: `/me/roadmaps`, mark/unmark complete, tính % real-time.
 11. **Comments** (có reply lồng nhau).
 12. **Dashboard**: `/dashboard/me`, `/dashboard/overview`, `/dashboard/roadmaps/{id}`.
+13. **Phase 3 — theo `docs/backend-requirements.md`** (đã xong): field hồ sơ Intern + `PATCH /users/{id}/profile`; metadata chặng; `code_snippet`/`is_resolved` + `PATCH /comments/{id}/resolve`; resource mới **Projects / Tasks / Daily Reports**; bổ sung field Dashboard. Phần "major task → section" của mục 5 vẫn **để mở**, cần họp với FE trước khi thêm cấp con.
 
 Sau mỗi bước: chạy thử trên `/docs`, xác nhận không lỗi, rồi mới sang bước tiếp theo. Khi xong toàn bộ, Swagger tại `/docs` chính là "hợp đồng" để phía frontend gọi API.

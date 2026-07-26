@@ -100,6 +100,10 @@ def get_roadmap_detail(db: Session, roadmap_id: int) -> RoadmapDetailOut:
                 title=m.title,
                 description=m.description,
                 position=m.position,
+                track=m.track,
+                week_number=m.week_number,
+                duration_text=m.duration_text,
+                key_skills=m.key_skills or [],
                 documents=[
                     LessonInModule(
                         module_document_id=md.id,
@@ -131,6 +135,10 @@ def add_module(db: Session, roadmap_id: int, data: ModuleCreate) -> Module:
         title=data.title,
         description=data.description,
         position=data.position,
+        track=data.track,
+        week_number=data.week_number,
+        duration_text=data.duration_text,
+        key_skills=data.key_skills,
     )
     db.add(m)
     db.commit()
@@ -139,7 +147,10 @@ def add_module(db: Session, roadmap_id: int, data: ModuleCreate) -> Module:
 
 
 def update_module(db: Session, m: Module, data: ModuleUpdate) -> Module:
-    for key, value in data.model_dump(exclude_unset=True).items():
+    fields = data.model_dump(exclude_unset=True)
+    if "key_skills" in fields and fields["key_skills"] is None:
+        fields["key_skills"] = []  # the column is NOT NULL
+    for key, value in fields.items():
         setattr(m, key, value)
     db.commit()
     db.refresh(m)

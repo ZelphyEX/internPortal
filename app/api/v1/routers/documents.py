@@ -5,7 +5,13 @@ from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
 
 from app.core.config import settings
 from app.core.deps import CurrentUser, DbSession, MentorRequired
-from app.core.pagination import DEFAULT_PAGE, DEFAULT_SIZE, MAX_SIZE, paginate
+from app.core.pagination import (
+    DEFAULT_PAGE,
+    DEFAULT_SIZE,
+    PageQuery,
+    SizeQuery,
+    paginate,
+)
 from app.models.document import DocumentType
 from app.schemas.common import Page
 from app.schemas.document import DocumentCreate, DocumentOut, DocumentUpdate, UploadResponse
@@ -19,8 +25,8 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 def list_documents(
     db: DbSession,
     current_user: CurrentUser,
-    page: Annotated[int, Query(ge=1)] = DEFAULT_PAGE,
-    size: Annotated[int, Query(ge=1, le=MAX_SIZE)] = DEFAULT_SIZE,
+    page: PageQuery = DEFAULT_PAGE,
+    size: SizeQuery = DEFAULT_SIZE,
     search: Annotated[str | None, Query(description="search in title")] = None,
     tag: Annotated[str | None, Query(description="filter by tag name")] = None,
     type: Annotated[DocumentType | None, Query()] = None,

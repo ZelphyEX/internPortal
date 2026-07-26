@@ -13,7 +13,10 @@
 8. Nhóm API: Học tập & Tiến độ (Progress)
 9. Nhóm API: Dashboard
 10. Nhóm API: Comment
-11. Bảng tổng hợp toàn bộ endpoint
+11. Nhóm API: Dự án (Projects)
+12. Nhóm API: Công việc (Tasks)
+13. Nhóm API: Báo cáo hằng ngày (Daily Reports)
+14. Bảng tổng hợp toàn bộ endpoint
 
 ---
 
@@ -40,6 +43,7 @@ Authorization: Bearer <access_token>
   "pages": 7
 }
 ```
+Ràng buộc: `page >= 1`, `size` trong khoảng `1..100` (**mặc định 20**). Gửi `size > 100` → `422`. Giới hạn này được ghi trong `description` của param `size` trên Swagger nên client generate type từ OpenAPI đọc được luôn.
 
 **Định dạng lỗi** (chuẩn FastAPI):
 ```json
@@ -142,13 +146,34 @@ Response `204`. Lỗi: `400` nếu mật khẩu cũ sai.
 
 ## 3. Nhóm API: Quản lý User (Mentor/Admin)
 
+### Hồ sơ Intern (profile) — các field dùng chung
+Mọi response user của nhóm này (`GET /users`, `GET /users/{id}`, `POST /users`, lock/unlock, `PATCH /users/{id}/profile`) đều trả **cùng một bộ field**. Tất cả field hồ sơ đều **nullable** và chỉ có ý nghĩa với `role=INTERN`:
+
+| Field | Kiểu | Ghi chú |
+|---|---|---|
+| `department` | enum \| null | `Java Back-End` \| `React Front-End` \| `Cloud & DevOps` \| `Salesforce/ERP` \| `AI & Data Science` |
+| `mentor_id` | number \| null | Mentor phụ trách; phải là tài khoản MENTOR/ADMIN |
+| `mentor_name`, `mentor_email` | string \| null | Backend tự resolve từ `mentor_id` (read-only) |
+| `phone` | string \| null | |
+| `start_date`, `end_date` | date (`YYYY-MM-DD`) \| null | Thời gian thực tập |
+| `university`, `major` | string \| null | |
+| `bio` | string \| null | |
+| `github_url` | string \| null | |
+| `score`, `attendance_rate` | number (0..100) \| null | Điểm đánh giá / tỉ lệ chuyên cần (%) |
+
 ### GET /users — Liệt kê, tìm kiếm, phân trang Intern
 Quyền: MENTOR.
 Query: `?page=1&size=20&search=<tên hoặc email>&role=INTERN&status=ACTIVE`
 ```json
 // Response 200 (dạng phân trang)
 { "items": [
-    { "id": 12, "full_name": "Nguyen Van A", "email": "a@example.com", "role": "INTERN", "status": "ACTIVE" }
+    { "id": 12, "full_name": "Nguyen Van A", "email": "a@example.com",
+      "role": "INTERN", "status": "ACTIVE", "avatar_url": null,
+      "department": "React Front-End", "mentor_id": 2, "mentor_name": "Mentor B",
+      "mentor_email": "b@example.com", "phone": "0900000001",
+      "start_date": "2026-07-01", "end_date": "2026-09-30",
+      "university": "HUST", "major": "CNTT", "bio": "TTS FE",
+      "github_url": "https://github.com/a", "score": 8.5, "attendance_rate": 96.5 }
   ], "total": 40, "page": 1, "size": 20, "pages": 2 }
 ```
 
@@ -161,7 +186,21 @@ Quyền: ADMIN.
 Response `201`.
 
 ### GET /users/{id} — Chi tiết một user
-Quyền: MENTOR. Response `200` trả thông tin user.
+Quyền: MENTOR. Response `200` trả thông tin user (kèm toàn bộ field hồ sơ ở trên).
+
+### PATCH /users/{id}/profile — Cập nhật hồ sơ Intern
+Quyền: MENTOR. Chỉ sửa các field hồ sơ; **không** đổi `full_name`/`email`/`role`/`status` qua đây (tự sửa tên/ảnh của chính mình thì dùng `PATCH /auth/me`).
+```json
+// Request — gửi field nào sửa field đó
+{ "department": "React Front-End", "mentor_id": 2, "phone": "0900000001",
+  "start_date": "2026-07-01", "end_date": "2026-09-30",
+  "university": "HUST", "major": "CNTT", "bio": "TTS FE",
+  "github_url": "https://github.com/a", "score": 8.5, "attendance_rate": 96.5 }
+```
+Response `200` trả user sau khi cập nhật.
+- Gửi `null` tường minh = **xóa** giá trị field đó (ví dụ `{"mentor_id": null}` để bỏ mentor).
+- Lỗi `400`: `mentor_id` không tồn tại / không phải MENTOR-ADMIN / trỏ vào chính user đó; `end_date` < `start_date`.
+- Lỗi `422`: `score`/`attendance_rate` ngoài khoảng 0..100.
 
 ### PATCH /users/{id}/lock — Khóa tài khoản
 Quyền: MENTOR. Đặt `status = LOCKED`. Response `200`.
@@ -293,12 +332,16 @@ Quyền: INTERN/MENTOR.
 { "id": 7, "title": "Lộ trình Frontend", "description": "...",
   "modules": [
     { "id": 20, "title": "Nhập môn", "position": 1,
+      "track": "React Front-End", "week_number": 1,
+      "duration_text": "2 tuần", "key_skills": ["React", "TypeScript"],
       "documents": [
         { "module_document_id": 100, "document_id": 5, "title": "Git cơ bản", "type": "PDF", "position": 1 }
       ] }
   ] }
 ```
 > Lưu ý: bài học trong chặng được tham chiếu bằng `module_document_id` — đây là ID dùng cho việc đánh dấu hoàn thành và comment.
+
+**Metadata của chặng (course card):** `track` (enum `department`, nullable), `week_number` (int ≥ 1, nullable), `duration_text` (string tự do, ví dụ `"2 tuần"`, nullable), `key_skills` (mảng string, mặc định `[]`). Có ở cả `POST /roadmaps/{id}/modules`, `PATCH /modules/{id}`, `GET /roadmaps/{id}` và `GET /me/roadmaps/{assignment_id}`. Gửi `key_skills` (kể cả `[]`) là **thay toàn bộ** danh sách; `null` được hiểu là `[]`.
 
 ### PATCH /roadmaps/{id} — Sửa lộ trình
 Quyền: MENTOR. Response `200`.
@@ -390,6 +433,8 @@ Quyền: INTERN (chỉ assignment của chính mình, nếu không → `403`).
 { "assignment_id": 300, "roadmap_id": 7, "title": "Lộ trình Frontend", "progress_percent": 40,
   "modules": [
     { "id": 20, "title": "Nhập môn", "position": 1,
+      "track": "React Front-End", "week_number": 1,
+      "duration_text": "2 tuần", "key_skills": ["React", "TypeScript"],
       "lessons": [
         { "module_document_id": 100, "title": "Git cơ bản", "type": "PDF",
           "content_url": "https://.../git.pdf", "completed": true, "completed_at": "2026-07-12T08:00:00Z" },
@@ -427,16 +472,24 @@ Quyền: INTERN.
 // Response 200
 { "total_roadmaps": 2, "completed_roadmaps": 0,
   "overall_progress_percent": 45,
+  "task_completion_percent": 60,
+  "pending_reports_count": 1,
   "roadmaps": [ { "assignment_id": 300, "title": "Lộ trình Frontend", "progress_percent": 40 } ] }
 ```
+- `task_completion_percent`: `tasks` có `status = Done` / tổng số task được gán cho chính user (0 nếu chưa có task nào).
+- `pending_reports_count`: số `daily_reports` của chính user đang ở `status = Pending` (chờ mentor duyệt).
 
 ### GET /dashboard/overview — Dashboard tổng quan (Mentor xem tất cả)
 Quyền: MENTOR.
 ```json
 // Response 200
 { "total_interns": 40, "active_assignments": 55, "completed_assignments": 12,
+  "avg_score": 8.12, "completed_tasks_this_week": 17, "pending_reviews_count": 5,
   "by_group": [ { "group_id": 3, "name": "Frontend Khóa 1", "avg_progress_percent": 62 } ] }
 ```
+- `avg_score`: trung bình `users.score` của các Intern chưa xóa **và đã có điểm** (trả `0` nếu chưa ai có điểm).
+- `completed_tasks_this_week`: số task chuyển sang `Done` kể từ **thứ Hai 00:00 UTC** của tuần hiện tại (dựa trên `tasks.completed_at`).
+- `pending_reviews_count`: tổng số `daily_reports` đang `Pending` (của mọi Intern).
 
 ### GET /dashboard/roadmaps/{roadmap_id} — Tiến độ mọi Intern trong một lộ trình
 Quyền: MENTOR.
@@ -458,27 +511,188 @@ Quyền: INTERN/MENTOR. Trả comment gốc kèm reply lồng nhau (theo `parent
 ```json
 // Response 200
 [ { "id": 500, "user": { "id": 12, "full_name": "Nguyen Van A" }, "content": "Bài này hay",
+    "code_snippet": "const a = 1;", "is_resolved": false,
     "created_at": "2026-07-12T09:00:00Z",
-    "replies": [ { "id": 501, "user": { "id": 2, "full_name": "Mentor B" }, "content": "Cảm ơn em" } ] } ]
+    "replies": [ { "id": 501, "user": { "id": 2, "full_name": "Mentor B" }, "content": "Cảm ơn em",
+                   "code_snippet": null, "is_resolved": false } ] } ]
 ```
+- `code_snippet` (string \| null): đoạn code đính kèm khi hỏi/thảo luận.
+- `is_resolved` (bool, mặc định `false`): chỉ MENTOR đổi được, qua endpoint riêng bên dưới.
 
 ### POST /lessons/{module_document_id}/comments — Viết comment (hoặc reply)
 Quyền: INTERN/MENTOR.
 ```json
 // Request (reply thì thêm parent_comment_id)
-{ "content": "Cho em hỏi...", "parent_comment_id": null }
+{ "content": "Cho em hỏi...", "code_snippet": "const a = 1;", "parent_comment_id": null }
 ```
 Response `201`.
 
 ### PATCH /comments/{id} — Sửa comment của chính mình
-Quyền: chủ comment. Response `200`. Người khác sửa → `403`.
+Quyền: chủ comment. Body: `{ "content": "...", "code_snippet": "..." }` (gửi `code_snippet: null` để bỏ đoạn code). Response `200`. Người khác sửa → `403`.
+
+### PATCH /comments/{id}/resolve — Đánh dấu đã giải quyết
+Quyền: MENTOR (khác với quyền sửa nội dung — đó là của chủ comment).
+```json
+// Request (body không bắt buộc; mặc định là resolve)
+{ "is_resolved": true }
+```
+Response `200` trả comment sau khi cập nhật. Gửi `{"is_resolved": false}` để mở lại. INTERN gọi → `403`.
 
 ### DELETE /comments/{id} — Xóa comment
 Quyền: chủ comment hoặc MENTOR. Response `204`.
 
 ---
 
-## 11. Bảng tổng hợp toàn bộ endpoint
+## 11. Nhóm API: Dự án (Projects)
+
+> Quy tắc xem: MENTOR/ADMIN thấy mọi dự án. **INTERN chỉ thấy dự án mình là `lead_user_id` hoặc là thành viên** — kể cả khi truyền filter khác (CLAUDE.md mục 6). Ghi (tạo/sửa/xóa/thêm-kick thành viên): MENTOR.
+
+### GET /projects — Danh sách dự án
+Quyền: INTERN (chỉ dự án của mình) / MENTOR (tất cả).
+Query: `?page=1&size=20&search=<title hoặc code>&department=React Front-End&status=Active&member_id=12`
+```json
+// Response 200 (item)
+{ "id": 4, "code": "PRJ-001", "title": "Intern Portal", "department": "React Front-End",
+  "status": "Active", "lead_user_id": 2, "lead_name": "Mentor B", "progress_percent": 55,
+  "deadline": "2026-09-30", "description": "...", "tags": ["react"],
+  "member_count": 3, "created_at": "2026-07-20T00:00:00Z" }
+```
+- `status`: `In Planning` | `Active` | `Under Review` | `Completed`.
+- `progress_percent` (0..100) do Mentor tự cập nhật, **không** tự suy ra từ tasks (số theo task xem `task_completion_percent` ở mục 9).
+- `tags` dùng chung bảng `tags` với Documents (gửi `tag_ids` khi ghi, đọc ra là danh sách tên).
+
+### POST /projects — Tạo dự án
+Quyền: MENTOR.
+```json
+// Request
+{ "code": "PRJ-001", "title": "Intern Portal", "department": "React Front-End",
+  "status": "Active", "lead_user_id": 2, "progress_percent": 0, "deadline": "2026-09-30",
+  "description": "...", "tag_ids": [1], "member_ids": [12, 15] }
+```
+Response `201` (dạng chi tiết, kèm `members`). Lỗi: `409` nếu `code` đã tồn tại; `400` nếu `lead_user_id` không tồn tại. `member_ids` bỏ qua id không tồn tại / trùng.
+
+### GET /projects/{id} — Chi tiết dự án (kèm thành viên)
+Quyền: INTERN (phải là lead/thành viên, nếu không → `403`) / MENTOR.
+```json
+// Response 200
+{ "id": 4, "code": "PRJ-001", "title": "Intern Portal", "...": "...",
+  "members": [ { "id": 12, "full_name": "Nguyen Van A", "email": "a@example.com", "avatar_url": null } ] }
+```
+
+### PATCH /projects/{id} — Sửa dự án
+Quyền: MENTOR. Gửi field nào sửa field đó; `tag_ids` xuất hiện (kể cả `[]`) là gán lại toàn bộ tags. Response `200` (dạng chi tiết). Lỗi `409` nếu đổi sang `code` đã có.
+
+### DELETE /projects/{id} — Xóa dự án
+Quyền: MENTOR. **Xóa mềm** (đặt `deleted_at`) vì `tasks` còn tham chiếu tới dự án. Sau khi xóa: không còn trong danh sách, `GET /projects/{id}` trả `404`. Response `204`.
+
+### POST /projects/{id}/members — Thêm nhiều thành viên
+Quyền: MENTOR. Chạy trong 1 transaction, bỏ qua người đã ở trong dự án và id không tồn tại.
+```json
+{ "user_ids": [12, 15, 18] }
+```
+Response `200` trả danh sách thành viên hiện tại.
+
+### DELETE /projects/{id}/members/{user_id} — Kick thành viên
+Quyền: MENTOR. Response `204`; `404` nếu user không phải thành viên.
+
+---
+
+## 12. Nhóm API: Công việc (Tasks)
+
+> Quy tắc xem: MENTOR/ADMIN thấy mọi task. **INTERN chỉ thấy task được gán cho mình** (`assigned_intern_id`), kể cả khi truyền `assigned_intern_id` khác.
+
+### GET /tasks — Danh sách công việc
+Quyền: INTERN (task của mình) / MENTOR (tất cả).
+Query: `?page=1&size=20&project_id=4&assigned_intern_id=12&status=In Progress&priority=High`
+```json
+// Response 200 (item)
+{ "id": 90, "title": "Làm trang login", "project_id": 4, "project_code": "PRJ-001",
+  "project_title": "Intern Portal", "assigned_intern_id": 12,
+  "assigned_intern_name": "Nguyen Van A", "mentor_id": 2, "mentor_name": "Mentor B",
+  "status": "In Progress", "priority": "High", "due_date": "2026-08-01",
+  "description": "...", "pr_url": null, "mentor_feedback": null,
+  "completed_at": null, "created_at": "2026-07-21T00:00:00Z", "updated_at": "2026-07-21T00:00:00Z" }
+```
+- `status`: `To Do` | `In Progress` | `In Review` | `Done` | `Blocked` (mặc định `To Do`).
+- `priority`: `Low` | `Medium` | `High` | `Urgent` (mặc định `Medium`).
+- `completed_at` do backend tự quản: chuyển sang `Done` → set thời điểm hiện tại; rời `Done` → về `null`.
+
+### POST /tasks — Tạo công việc
+Quyền: MENTOR.
+```json
+// Request
+{ "title": "Làm trang login", "project_id": 4, "assigned_intern_id": 12,
+  "priority": "High", "due_date": "2026-08-01", "description": "..." }
+```
+Response `201`. `mentor_id` mặc định là người gọi. `project_id` để `null` được (task ngoài dự án). Lỗi `400` nếu `project_id`/`assigned_intern_id`/`mentor_id` không tồn tại.
+
+### GET /tasks/{id} — Chi tiết công việc
+Quyền: INTERN (task của mình, nếu không → `403`) / MENTOR.
+
+### PATCH /tasks/{id} — Cập nhật công việc
+Quyền: MENTOR (mọi field) / INTERN (**chỉ `status` và `pr_url`**, và chỉ trên task của mình).
+```json
+// Intern kéo task trên Kanban + nộp PR
+{ "status": "In Review", "pr_url": "https://github.com/org/repo/pull/12" }
+```
+```json
+// Mentor nhận xét
+{ "status": "Done", "mentor_feedback": "Code ổn, merge được" }
+```
+Response `200`. Intern gửi field khác (ví dụ `mentor_feedback`, `assigned_intern_id`) → `403` kèm danh sách field bị từ chối.
+
+### DELETE /tasks/{id} — Xóa công việc
+Quyền: MENTOR. Response `204`. (Xóa vật lý — task không phải dữ liệu cần lưu vết như user/document.)
+
+---
+
+## 13. Nhóm API: Báo cáo hằng ngày (Daily Reports)
+
+> Quy tắc xem: MENTOR/ADMIN thấy mọi báo cáo. **INTERN chỉ thấy báo cáo của mình.** Người tạo báo cáo **luôn** là user trong token — không nhận `intern_id` từ body. Mỗi Intern chỉ có 1 báo cáo / 1 ngày (`UNIQUE(intern_id, date)`).
+
+### GET /daily-reports — Danh sách báo cáo
+Quyền: INTERN (của mình) / MENTOR (tất cả).
+Query: `?page=1&size=20&intern_id=12&date_from=2026-07-01&date_to=2026-07-31&status=Pending`
+```json
+// Response 200 (item)
+{ "id": 30, "intern_id": 12, "intern_name": "Nguyen Van A", "date": "2026-07-26",
+  "completed_today": "Xong trang login", "tomorrow_plan": "Làm trang register",
+  "blockers": null, "hours_logged": 7.5, "status": "Pending",
+  "mentor_comment": null, "rating": null, "reviewed_by": null, "reviewer_name": null,
+  "reviewed_at": null, "created_at": "2026-07-26T10:00:00Z", "updated_at": "2026-07-26T10:00:00Z" }
+```
+`status`: `Pending` | `Approved` | `Needs Revision`.
+
+### POST /daily-reports — Intern tự tạo báo cáo
+Quyền: INTERN/MENTOR (báo cáo thuộc về người gọi).
+```json
+// Request
+{ "date": "2026-07-26", "completed_today": "Xong trang login",
+  "tomorrow_plan": "Làm trang register", "blockers": null, "hours_logged": 7.5 }
+```
+Response `201` với `status = Pending`. Lỗi: `409` nếu đã có báo cáo cho ngày đó; `422` nếu `hours_logged` ngoài 0..24.
+
+### GET /daily-reports/{id} — Chi tiết báo cáo
+Quyền: chủ báo cáo hoặc MENTOR (Intern xem của người khác → `403`).
+
+### PATCH /daily-reports/{id} — Sửa báo cáo của chính mình
+Quyền: **chủ báo cáo** (người khác → `403`). Dùng khi mentor trả về `Needs Revision`.
+```json
+{ "completed_today": "Xong trang login + validate", "hours_logged": 8 }
+```
+Response `200`. Báo cáo đang `Needs Revision` sẽ **tự quay về `Pending`** sau khi sửa. Lỗi `400` nếu báo cáo đã `Approved` (đóng băng), `409` nếu đổi `date` sang ngày đã có báo cáo khác.
+
+### PATCH /daily-reports/{id}/review — Mentor duyệt
+Quyền: MENTOR.
+```json
+// Request
+{ "status": "Needs Revision", "mentor_comment": "Thiếu phần blockers", "rating": 3 }
+```
+Response `200` (ghi nhận `reviewed_by`, `reviewer_name`, `reviewed_at`). Lỗi: `400` nếu `status = Pending` (review phải là `Approved` hoặc `Needs Revision`); `422` nếu `rating` ngoài 1..5.
+
+---
+
+## 14. Bảng tổng hợp toàn bộ endpoint
 
 | Method | Endpoint | Quyền | Chức năng |
 |---|---|---|---|
@@ -492,6 +706,7 @@ Quyền: chủ comment hoặc MENTOR. Response `204`.
 | GET | /users | MENTOR | Liệt kê/tìm kiếm/phân trang |
 | POST | /users | ADMIN | Tạo mentor/admin |
 | GET | /users/{id} | MENTOR | Chi tiết user |
+| PATCH | /users/{id}/profile | MENTOR | Cập nhật hồ sơ Intern |
 | PATCH | /users/{id}/lock | MENTOR | Khóa tài khoản |
 | PATCH | /users/{id}/unlock | MENTOR | Mở khóa |
 | DELETE | /users/{id} | ADMIN | Xóa mềm |
@@ -535,7 +750,25 @@ Quyền: chủ comment hoặc MENTOR. Response `204`.
 | GET | /lessons/{module_document_id}/comments | INTERN/MENTOR | Danh sách comment |
 | POST | /lessons/{module_document_id}/comments | INTERN/MENTOR | Viết comment/reply |
 | PATCH | /comments/{id} | chủ comment | Sửa comment |
+| PATCH | /comments/{id}/resolve | MENTOR | Đánh dấu đã giải quyết |
 | DELETE | /comments/{id} | chủ comment/MENTOR | Xóa comment |
+| GET | /projects | INTERN (của mình)/MENTOR | Danh sách dự án |
+| POST | /projects | MENTOR | Tạo dự án |
+| GET | /projects/{id} | thành viên/MENTOR | Chi tiết + thành viên |
+| PATCH | /projects/{id} | MENTOR | Sửa dự án |
+| DELETE | /projects/{id} | MENTOR | Xóa mềm dự án |
+| POST | /projects/{id}/members | MENTOR | Thêm nhiều thành viên |
+| DELETE | /projects/{id}/members/{user_id} | MENTOR | Kick thành viên |
+| GET | /tasks | INTERN (của mình)/MENTOR | Danh sách công việc |
+| POST | /tasks | MENTOR | Tạo công việc |
+| GET | /tasks/{id} | người được gán/MENTOR | Chi tiết công việc |
+| PATCH | /tasks/{id} | MENTOR (mọi field) / INTERN (status, pr_url) | Cập nhật công việc |
+| DELETE | /tasks/{id} | MENTOR | Xóa công việc |
+| GET | /daily-reports | INTERN (của mình)/MENTOR | Danh sách báo cáo |
+| POST | /daily-reports | INTERN/MENTOR | Tạo báo cáo hằng ngày |
+| GET | /daily-reports/{id} | chủ báo cáo/MENTOR | Chi tiết báo cáo |
+| PATCH | /daily-reports/{id} | chủ báo cáo | Sửa báo cáo của mình |
+| PATCH | /daily-reports/{id}/review | MENTOR | Duyệt báo cáo |
 
 ---
 

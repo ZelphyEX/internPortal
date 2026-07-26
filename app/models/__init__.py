@@ -6,12 +6,18 @@ Importing this package registers every table on `Base.metadata`
 from app.models.assignment import AssignmentStatus, LessonProgress, RoadmapAssignment
 from app.models.auth import RefreshToken
 from app.models.comment import Comment
+from app.models.daily_report import DailyReport, DailyReportStatus
 from app.models.document import Document, DocumentTag, DocumentType, Tag
+from app.models.enums import Department
 from app.models.group import Group, GroupMember
+from app.models.project import Project, ProjectMember, ProjectStatus, ProjectTag
 from app.models.roadmap import Module, ModuleDocument, Roadmap
+from app.models.task import Task, TaskPriority, TaskStatus
 from app.models.user import Role, User, UserStatus
 
 __all__ = [
+    # shared enums
+    "Department",
     # user
     "User", "Role", "UserStatus",
     # auth
@@ -26,4 +32,10 @@ __all__ = [
     "RoadmapAssignment", "AssignmentStatus", "LessonProgress",
     # comment
     "Comment",
+    # project
+    "Project", "ProjectStatus", "ProjectMember", "ProjectTag",
+    # task
+    "Task", "TaskStatus", "TaskPriority",
+    # daily report
+    "DailyReport", "DailyReportStatus",
 ]

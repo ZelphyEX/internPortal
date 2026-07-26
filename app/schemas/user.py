@@ -1,6 +1,9 @@
 """User output/update schemas (shared by auth; extended by Dev B for /users)."""
+from datetime import date
+
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
+from app.models.enums import Department
 from app.models.user import Role, UserStatus
 
 
@@ -36,9 +39,31 @@ class UserUpdate(BaseModel):
 # --------------------------------------------------------------------------- #
 # User management (Dev B — API_SPEC mục 3)
 # --------------------------------------------------------------------------- #
-class UserListItem(BaseModel):
-    """GET /users list item."""
+class UserProfileFields(BaseModel):
+    """Intern profile fields (backend-requirements mục 1).
+
+    Every field is optional and only meaningful for `role=INTERN`.
+    `mentor_name`/`mentor_email` are resolved from `mentor_id` by the service.
+    """
     model_config = ConfigDict(from_attributes=True)
+
+    department: Department | None = None
+    mentor_id: int | None = None
+    mentor_name: str | None = None
+    mentor_email: str | None = None
+    phone: str | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    university: str | None = None
+    major: str | None = None
+    bio: str | None = None
+    github_url: str | None = None
+    score: float | None = None
+    attendance_rate: float | None = None
+
+
+class UserListItem(UserProfileFields):
+    """GET /users list item."""
 
     id: int
     full_name: str
@@ -48,11 +73,11 @@ class UserListItem(BaseModel):
     email: str
     role: Role
     status: UserStatus
+    avatar_url: str | None = None
 
 
-class UserOut(BaseModel):
+class UserOut(UserProfileFields):
     """GET /users/{id} detail + create/lock/unlock response."""
-    model_config = ConfigDict(from_attributes=True)
 
     id: int
     full_name: str
@@ -60,6 +85,26 @@ class UserOut(BaseModel):
     role: Role
     status: UserStatus
     avatar_url: str | None = None
+
+
+class UserProfileUpdate(BaseModel):
+    """PATCH /users/{id}/profile request (MENTOR/ADMIN).
+
+    Only the fields present in the payload change; sending an explicit `null`
+    clears that field. Kept separate from `PATCH /auth/me`, which is how a user
+    edits their *own* name/avatar.
+    """
+    department: Department | None = None
+    mentor_id: int | None = None
+    phone: str | None = Field(default=None, max_length=32)
+    start_date: date | None = None
+    end_date: date | None = None
+    university: str | None = Field(default=None, max_length=255)
+    major: str | None = Field(default=None, max_length=255)
+    bio: str | None = None
+    github_url: str | None = Field(default=None, max_length=512)
+    score: float | None = Field(default=None, ge=0, le=100)
+    attendance_rate: float | None = Field(default=None, ge=0, le=100)
 
 
 class UserCreate(BaseModel):

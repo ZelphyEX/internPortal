@@ -5,14 +5,17 @@ endpoints aggregate across everyone. Progress % is computed live via
 `app.services.progress` so the numbers match the learning views.
 """
 from collections import defaultdict
+from datetime import datetime, time, timedelta, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.assignment import AssignmentStatus, RoadmapAssignment
+from app.models.daily_report import DailyReport, DailyReportStatus
 from app.models.group import Group
 from app.models.roadmap import Roadmap
+from app.models.task import Task, TaskStatus
 from app.models.user import Role, User, UserStatus
 from app.schemas.dashboard import (
     DashboardMe,
@@ -29,13 +32,43 @@ def _avg(values: list[int]) -> int:
     return int(round(sum(values) / len(values))) if values else 0
 
 
+def _week_start() -> datetime:
+    """Monday 00:00 UTC of the current week."""
+    now = datetime.now(timezone.utc)
+    return datetime.combine(
+        (now - timedelta(days=now.weekday())).date(), time.min, tzinfo=timezone.utc,
+    )
+
+
+def _my_task_completion_percent(db: Session, user_id: int) -> int:
+    total = db.scalar(
+        select(func.count(Task.id)).where(Task.assigned_intern_id == user_id)
+    ) or 0
+    if total == 0:
+        return 0
+    done = db.scalar(
+        select(func.count(Task.id)).where(
+            Task.assigned_intern_id == user_id, Task.status == TaskStatus.DONE,
+        )
+    ) or 0
+    return progress.percent(done, total)
+
+
 def me(db: Session, user: User) -> DashboardMe:
     items = learning_service.list_my_roadmaps(db, user)
     completed = sum(1 for i in items if i.status == AssignmentStatus.COMPLETED)
+    pending_reports = db.scalar(
+        select(func.count(DailyReport.id)).where(
+            DailyReport.intern_id == user.id,
+            DailyReport.status == DailyReportStatus.PENDING,
+        )
+    ) or 0
     return DashboardMe(
         total_roadmaps=len(items),
         completed_roadmaps=completed,
         overall_progress_percent=_avg([i.progress_percent for i in items]),
+        task_completion_percent=_my_task_completion_percent(db, user.id),
+        pending_reports_count=pending_reports,
         roadmaps=[
             MyRoadmapMini(
                 assignment_id=i.assignment_id, title=i.title,
@@ -88,10 +121,35 @@ def overview(db: Session) -> DashboardOverview:
         )
         for g in groups
     ]
+
+    # --- backend-requirements mục 7 ---
+    avg_score = db.scalar(
+        select(func.avg(User.score)).where(
+            User.role == Role.INTERN,
+            User.deleted_at.is_(None),
+            User.score.is_not(None),
+        )
+    )
+    tasks_this_week = db.scalar(
+        select(func.count(Task.id)).where(
+            Task.status == TaskStatus.DONE,
+            Task.completed_at.is_not(None),
+            Task.completed_at >= _week_start(),
+        )
+    ) or 0
+    pending_reviews = db.scalar(
+        select(func.count(DailyReport.id)).where(
+            DailyReport.status == DailyReportStatus.PENDING
+        )
+    ) or 0
+
     return DashboardOverview(
         total_interns=total_interns,
         active_assignments=active,
         completed_assignments=done,
+        avg_score=round(float(avg_score), 2) if avg_score is not None else 0,
+        completed_tasks_this_week=tasks_this_week,
+        pending_reviews_count=pending_reviews,
         by_group=by_group,
     )
 

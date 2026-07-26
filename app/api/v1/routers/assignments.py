@@ -4,7 +4,13 @@ from typing import Annotated
 from fastapi import APIRouter, Query, status
 
 from app.core.deps import DbSession, MentorRequired
-from app.core.pagination import DEFAULT_PAGE, DEFAULT_SIZE, MAX_SIZE, paginate
+from app.core.pagination import (
+    DEFAULT_PAGE,
+    DEFAULT_SIZE,
+    PageQuery,
+    SizeQuery,
+    paginate,
+)
 from app.models.assignment import AssignmentStatus
 from app.schemas.assignment import (
     AssignGroupRequest,
@@ -57,8 +63,8 @@ def delete_assignment(
 def list_assignments(
     db: DbSession,
     current_user: MentorRequired,
-    page: Annotated[int, Query(ge=1)] = DEFAULT_PAGE,
-    size: Annotated[int, Query(ge=1, le=MAX_SIZE)] = DEFAULT_SIZE,
+    page: PageQuery = DEFAULT_PAGE,
+    size: SizeQuery = DEFAULT_SIZE,
     roadmap_id: Annotated[int | None, Query()] = None,
     user_id: Annotated[int | None, Query()] = None,
     group_id: Annotated[int | None, Query()] = None,

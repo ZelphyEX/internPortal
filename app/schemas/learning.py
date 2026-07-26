@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from app.models.assignment import AssignmentStatus
 from app.models.document import DocumentType
+from app.schemas.roadmap import ModuleMetaFields
 
 
 class MyRoadmapItem(BaseModel):
@@ -27,7 +28,8 @@ class LessonDetail(BaseModel):
     completed_at: datetime | None = None
 
 
-class ModuleWithLessons(BaseModel):
+class ModuleWithLessons(ModuleMetaFields):
+    """A module as the intern sees it (course card + its lessons)."""
     id: int
     title: str
     position: int
