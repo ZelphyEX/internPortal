@@ -58,7 +58,23 @@ def main() -> int:
         return 1
 
     print("PUBLIC READ OK - the URL is usable as content_url")
+    _cleanup(url)
     return 0
+
+
+def _cleanup(url: str) -> None:
+    """Best-effort delete of the probe object so checks don't litter the bucket."""
+    if settings.STORAGE_BACKEND.lower() != "gcs":
+        return
+    try:
+        from google.cloud import storage as gcs
+
+        object_name = url.split(f"/{settings.GCS_BUCKET}/", 1)[1]
+        gcs.Client(project=settings.GCS_PROJECT_ID or None) \
+            .bucket(settings.GCS_BUCKET).blob(object_name).delete()
+        print("cleanup: probe object deleted")
+    except Exception as exc:  # noqa: BLE001 - cleanup must never fail the check
+        print(f"cleanup: could not delete probe object ({type(exc).__name__}); delete it manually")
 
 
 if __name__ == "__main__":
