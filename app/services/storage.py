@@ -1,14 +1,17 @@
 """Cloud storage wrapper (task 1.3).
 
-Abstracts where uploaded files live. Two backends, selected by
+Abstracts where uploaded files live. Three backends, selected by
 `STORAGE_BACKEND` env:
   * "local" (default, dev): writes into STORAGE_LOCAL_DIR; the app serves
     them via the /files StaticFiles mount. content_url = STORAGE_PUBLIC_BASE_URL/<name>.
-  * "s3": pushes to an S3-compatible bucket / GCS (endpoint, keys, bucket
-    from env). content_url = S3_PUBLIC_URL_BASE/<name>.
+  * "gcs": Google Cloud Storage via google-cloud-storage + Application
+    Default Credentials (no keys in env). content_url is the object's public
+    URL, so the bucket must grant allUsers the Storage Object Viewer role.
+  * "s3": pushes to an S3-compatible bucket / MinIO / GCS XML API (endpoint,
+    HMAC keys, bucket from env). content_url = S3_PUBLIC_URL_BASE/<name>.
 
-Dev B: don't call backends directly — use `save_upload(file)` (or
-`get_storage().save(...)`). It returns the public `content_url` string.
+Dev B: don't call backends directly — use `get_storage().save(...)`.
+It returns the public `content_url` string.
 """
 from abc import ABC, abstractmethod
 from functools import lru_cache
@@ -45,6 +48,46 @@ class LocalStorage(Storage):
         return f"{self.public_base_url}/{name}"
 
 
+class GCSStorage(Storage):
+    """Google Cloud Storage backend.
+
+    Credentials come from Application Default Credentials, so no key material
+    lives in env: on Cloud Run it is the service account attached to the
+    service; locally run `gcloud auth application-default login` or point
+    GOOGLE_APPLICATION_CREDENTIALS at a service-account JSON key.
+
+    The returned content_url is the object's public URL, so the bucket must
+    grant `allUsers` the Storage Object Viewer role (see docs/DEPLOYMENT.md).
+    """
+
+    def __init__(self) -> None:
+        from google.cloud import storage as gcs  # lazy: only this backend needs it
+
+        if not settings.GCS_BUCKET:
+            raise RuntimeError("STORAGE_BACKEND=gcs but GCS_BUCKET is empty")
+        client = gcs.Client(project=settings.GCS_PROJECT_ID or None)
+        self.bucket = client.bucket(settings.GCS_BUCKET)
+        self.prefix = settings.GCS_PREFIX.strip("/")
+        self.public_base = (
+            settings.GCS_PUBLIC_URL_BASE.rstrip("/")
+            or f"https://storage.googleapis.com/{settings.GCS_BUCKET}"
+        )
+
+    def _object_name(self, filename: str | None) -> str:
+        name = _unique_name(filename)
+        return f"{self.prefix}/{name}" if self.prefix else name
+
+    def save(self, data, *, original_filename=None, content_type=None) -> str:
+        object_name = self._object_name(original_filename)
+        blob = self.bucket.blob(object_name)
+        if settings.GCS_CACHE_CONTROL:
+            blob.cache_control = settings.GCS_CACHE_CONTROL
+        blob.upload_from_string(
+            data, content_type=content_type or "application/octet-stream",
+        )
+        return f"{self.public_base}/{object_name}"
+
+
 class S3Storage(Storage):
     """S3-compatible / GCS backend. boto3 imported lazily so local dev needs
     no AWS SDK. NOTE: not exercised in CI (no bucket credentials here)."""
@@ -72,6 +115,10 @@ class S3Storage(Storage):
 
 @lru_cache
 def get_storage() -> Storage:
-    if settings.STORAGE_BACKEND.lower() == "s3":
+    """Backend picked by STORAGE_BACKEND; built once, on first upload."""
+    backend = settings.STORAGE_BACKEND.lower()
+    if backend == "gcs":
+        return GCSStorage()
+    if backend == "s3":
         return S3Storage()
     return LocalStorage(settings.STORAGE_LOCAL_DIR, settings.STORAGE_PUBLIC_BASE_URL)

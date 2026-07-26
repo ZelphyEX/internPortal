@@ -94,8 +94,13 @@ from app.services.storage import get_storage
 url = get_storage().save(data_bytes, original_filename=name, content_type=ctype)  # -> content_url
 ```
 
-- Chọn backend qua env `STORAGE_BACKEND` = `local` (dev, ghi vào `STORAGE_LOCAL_DIR`, phục vụ qua mount `/files`) hoặc `s3` (bucket S3/GCS).
+- Chọn backend qua env `STORAGE_BACKEND`:
+  - `local` (dev) — ghi vào `STORAGE_LOCAL_DIR`, phục vụ qua mount `/files`.
+  - `gcs` — Google Cloud Storage. Auth bằng **ADC**, không có key trong env: Cloud Run dùng service account gắn sẵn, local chạy `gcloud auth application-default login` (hoặc set `GOOGLE_APPLICATION_CREDENTIALS`). Cần `GCS_BUCKET`; object nằm dưới `GCS_PREFIX` (mặc định `uploads/`).
+  - `s3` — bucket S3-compatible / MinIO (dùng HMAC key).
+- `content_url` trả về là URL public vĩnh viễn → bucket phải cho `allUsers` quyền **Storage Object Viewer**.
 - Endpoint dựng sẵn: `POST /api/v1/documents/upload` (multipart field `file`) → `{ "content_url": ... }`.
+- Kiểm tra kết nối bucket: `python -m scripts.check_storage` (upload thử 1 file rồi tải lại bằng URL public).
 
 ### 5. Thêm router mới
 
