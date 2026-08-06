@@ -38,9 +38,13 @@ def list_users(
 
 
 @router.post("", response_model=UserOut, status_code=status.HTTP_201_CREATED)
-def create_user(payload: UserCreate, db: DbSession, current_user: AdminRequired) -> UserOut:
-    """ADMIN only. Create a MENTOR/ADMIN account. 409 if the email exists."""
-    return svc.serialize_one(db, svc.create_user(db, payload))
+def create_user(payload: UserCreate, db: DbSession, current_user: MentorRequired) -> UserOut:
+    """MENTOR/ADMIN. Tạo tài khoản mới.
+
+    Luật vai trò (403 nếu vi phạm): MENTOR chỉ tạo được INTERN; ADMIN tạo được
+    INTERN hoặc MENTOR. Không tạo được ADMIN qua API. 409 nếu email đã tồn tại.
+    """
+    return svc.serialize_one(db, svc.create_user(db, payload, actor=current_user))
 
 
 @router.get("/{user_id}", response_model=UserOut)
@@ -75,8 +79,23 @@ def unlock_user(user_id: int, db: DbSession, current_user: MentorRequired) -> Us
     )
 
 
+@router.patch("/{user_id}/approve", response_model=UserOut)
+def approve_mentor(user_id: int, db: DbSession, current_user: AdminRequired) -> UserOut:
+    """ADMIN only. Duyệt tài khoản MENTOR đang chờ (PENDING -> ACTIVE).
+
+    400 nếu tài khoản không phải MENTOR hoặc không ở trạng thái chờ duyệt.
+    Từ chối thì dùng `DELETE /users/{id}` (xoá mềm) hoặc để nguyên PENDING.
+    """
+    target = svc.get_user(db, user_id)
+    return svc.serialize_one(db, svc.approve_mentor(db, target))
+
+
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_user(user_id: int, db: DbSession, current_user: AdminRequired) -> None:
-    """ADMIN only. Soft delete (sets deleted_at)."""
+def delete_user(user_id: int, db: DbSession, current_user: MentorRequired) -> None:
+    """MENTOR/ADMIN. Xoá mềm (đặt `deleted_at`).
+
+    Luật vai trò (403 nếu vi phạm): MENTOR chỉ xoá được INTERN; ADMIN xoá được
+    INTERN hoặc MENTOR. Không ai xoá được tài khoản ADMIN qua API.
+    """
     target = svc.get_user(db, user_id)
     svc.soft_delete(db, target, actor=current_user)

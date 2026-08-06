@@ -12,6 +12,7 @@ from app.schemas.auth import (
     RegisterRequest,
     TokenResponse,
 )
+from app.models.user import Role
 from app.schemas.user import MeOut, RegisterOut, UserUpdate
 from app.services import auth_service
 
@@ -20,9 +21,14 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/register", response_model=RegisterOut, status_code=status.HTTP_201_CREATED)
 def register(payload: RegisterRequest, db: DbSession) -> RegisterOut:
-    """Public. Creates an INTERN account. 409 if the email already exists."""
+    """Public. Tạo tài khoản INTERN (dùng được ngay) hoặc MENTOR (trạng thái
+    PENDING, phải chờ ADMIN duyệt mới đăng nhập được). 409 nếu email đã tồn tại."""
     return auth_service.register(
-        db, full_name=payload.full_name, email=payload.email, password=payload.password,
+        db,
+        full_name=payload.full_name,
+        email=payload.email,
+        password=payload.password,
+        role=Role(payload.role.value),
     )
 
 

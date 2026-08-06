@@ -5,10 +5,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.document import Document
-from app.models.roadmap import Module, ModuleDocument, Roadmap
+from app.models.roadmap import LessonAttachment, Module, ModuleDocument, Roadmap
 from app.schemas.roadmap import (
     AssignDocItem,
+    LessonAttachmentOut,
+    LessonCreate,
     LessonInModule,
+    LessonUpdate,
     ModuleCreate,
     ModuleDocumentOut,
     ModuleUpdate,
@@ -20,6 +23,42 @@ from app.schemas.roadmap import (
 )
 
 _IN_USE = "Resource is in use (assignments/progress/comments reference it)"
+
+
+def to_attachment_out(a: LessonAttachment) -> LessonAttachmentOut:
+    return LessonAttachmentOut(
+        attachment_id=a.id,
+        document_id=a.document_id,
+        title=a.document.title,
+        type=a.document.type,
+        content_url=a.document.content_url,
+        position=a.position,
+    )
+
+
+def to_lesson_out(md: ModuleDocument) -> LessonInModule:
+    """Bài học + tài liệu đính kèm. Tên/link ưu tiên của bài học, thiếu thì lấy
+    từ tài liệu gốc (bài học tạo từ Thư viện Tài liệu)."""
+    return LessonInModule(
+        module_document_id=md.id,
+        document_id=md.document_id,
+        title=md.display_title,
+        content_url=md.display_url,
+        type=md.document.type if md.document is not None else None,
+        position=md.position,
+        attachments=[to_attachment_out(a) for a in md.attachments],
+    )
+
+
+def to_module_document_out(md: ModuleDocument) -> ModuleDocumentOut:
+    return ModuleDocumentOut(
+        module_document_id=md.id,
+        module_id=md.module_id,
+        document_id=md.document_id,
+        title=md.display_title,
+        content_url=md.display_url,
+        position=md.position,
+    )
 
 
 # ---------- Roadmap ----------
@@ -85,7 +124,11 @@ def get_roadmap_detail(db: Session, roadmap_id: int) -> RoadmapDetailOut:
         .options(
             selectinload(Roadmap.modules)
             .selectinload(Module.module_documents)
-            .selectinload(ModuleDocument.document)
+            .selectinload(ModuleDocument.document),
+            selectinload(Roadmap.modules)
+            .selectinload(Module.module_documents)
+            .selectinload(ModuleDocument.attachments)
+            .selectinload(LessonAttachment.document),
         )
     )
     if r is None:
@@ -104,16 +147,9 @@ def get_roadmap_detail(db: Session, roadmap_id: int) -> RoadmapDetailOut:
                 week_number=m.week_number,
                 duration_text=m.duration_text,
                 key_skills=m.key_skills or [],
-                documents=[
-                    LessonInModule(
-                        module_document_id=md.id,
-                        document_id=md.document_id,
-                        title=md.document.title,
-                        type=md.document.type,
-                        position=md.position,
-                    )
-                    for md in m.module_documents
-                ],
+                start_date=m.start_date,
+                end_date=m.end_date,
+                documents=[to_lesson_out(md) for md in m.module_documents],
             )
             for m in r.modules
         ],
@@ -139,6 +175,8 @@ def add_module(db: Session, roadmap_id: int, data: ModuleCreate) -> Module:
         week_number=data.week_number,
         duration_text=data.duration_text,
         key_skills=data.key_skills,
+        start_date=data.start_date,
+        end_date=data.end_date,
     )
     db.add(m)
     db.commit()
@@ -193,15 +231,87 @@ def assign_documents(
     db.commit()
     for md in created:
         db.refresh(md)
-    return [
-        ModuleDocumentOut(
-            module_document_id=md.id,
-            module_id=md.module_id,
-            document_id=md.document_id,
-            position=md.position,
+    return [to_module_document_out(md) for md in created]
+
+
+# ---------- Bài học tạo tay (tên + link) ----------
+def create_lesson(db: Session, module_id: int, data: LessonCreate) -> ModuleDocumentOut:
+    """Tạo bài học bằng tên + link, KHÔNG sinh bản ghi trong Thư viện Tài liệu."""
+    get_module(db, module_id)  # 404 nếu chặng không tồn tại
+    md = ModuleDocument(
+        module_id=module_id,
+        document_id=None,
+        title=data.title,
+        content_url=data.content_url,
+        position=data.position,
+    )
+    db.add(md)
+    db.commit()
+    db.refresh(md)
+    return to_module_document_out(md)
+
+
+def update_lesson(db: Session, md: ModuleDocument, data: LessonUpdate) -> ModuleDocumentOut:
+    for key, value in data.model_dump(exclude_unset=True).items():
+        setattr(md, key, value)
+    db.commit()
+    db.refresh(md)
+    return to_module_document_out(md)
+
+
+# ---------- Tài liệu đính kèm dưới bài học ----------
+def attach_documents(
+    db: Session, md: ModuleDocument, document_ids: list[int],
+) -> list[LessonAttachmentOut]:
+    """Đính tài liệu vào bài học. Bỏ qua tài liệu đã đính (không báo lỗi)."""
+    existing_docs = set(
+        db.scalars(
+            select(Document.id).where(
+                Document.id.in_(document_ids), Document.deleted_at.is_(None)
+            )
+        ).all()
+    )
+    missing = set(document_ids) - existing_docs
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown document_ids: {sorted(missing)}",
         )
-        for md in created
-    ]
+    already = set(
+        db.scalars(
+            select(LessonAttachment.document_id).where(
+                LessonAttachment.module_document_id == md.id
+            )
+        ).all()
+    )
+    start_pos = len(already)
+    for offset, doc_id in enumerate(d for d in document_ids if d not in already):
+        db.add(
+            LessonAttachment(
+                module_document_id=md.id, document_id=doc_id, position=start_pos + offset,
+            )
+        )
+    db.commit()
+    rows = db.scalars(
+        select(LessonAttachment)
+        .where(LessonAttachment.module_document_id == md.id)
+        .options(selectinload(LessonAttachment.document))
+        .order_by(LessonAttachment.position, LessonAttachment.id)
+    ).all()
+    return [to_attachment_out(a) for a in rows]
+
+
+def detach_document(db: Session, module_document_id: int, document_id: int) -> None:
+    """Gỡ tài liệu khỏi bài học (không xoá tài liệu gốc). Idempotent."""
+    a = db.scalar(
+        select(LessonAttachment).where(
+            LessonAttachment.module_document_id == module_document_id,
+            LessonAttachment.document_id == document_id,
+        )
+    )
+    if a is not None:
+        db.delete(a)
+        db.commit()
 
 
 def get_module_document(db: Session, module_document_id: int) -> ModuleDocument:

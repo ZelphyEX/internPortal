@@ -1,13 +1,24 @@
 """Auth request/response schemas."""
+import enum
+
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from app.models.user import Role
+from app.models.user import Role, UserStatus
+
+
+class RegisterRole(str, enum.Enum):
+    """Vai trò được phép tự đăng ký. KHÔNG cho đăng ký ADMIN."""
+    INTERN = "INTERN"
+    MENTOR = "MENTOR"
 
 
 class RegisterRequest(BaseModel):
     full_name: str = Field(min_length=1, max_length=255)
     email: EmailStr
     password: str = Field(min_length=6, max_length=128)
+    # INTERN -> dùng được ngay (ACTIVE).
+    # MENTOR -> tạo ở trạng thái PENDING, phải chờ ADMIN duyệt mới đăng nhập được.
+    role: RegisterRole = RegisterRole.INTERN
 
 
 class LoginRequest(BaseModel):
@@ -22,6 +33,7 @@ class LoginUser(BaseModel):
     id: int
     full_name: str
     role: Role
+    status: UserStatus = UserStatus.ACTIVE
     avatar_url: str | None = None
 
 

@@ -26,7 +26,26 @@ def _get_active_user_by_email(db: Session, email: str) -> User | None:
     )
 
 
-def register(db: Session, *, full_name: str, email: str, password: str) -> User:
+#: Thông báo dùng chung khi tài khoản MENTOR chưa được duyệt. Frontend dựa vào
+#: chuỗi mã `PENDING_APPROVAL` để chuyển sang màn "đang chờ duyệt".
+PENDING_APPROVAL_DETAIL = (
+    "PENDING_APPROVAL: Tài khoản Mentor của bạn đang chờ Quản trị viên duyệt."
+)
+
+
+def register(
+    db: Session, *, full_name: str, email: str, password: str, role: Role = Role.INTERN,
+) -> User:
+    """Tự đăng ký. INTERN dùng được ngay; MENTOR phải chờ ADMIN duyệt.
+
+    Chỉ nhận INTERN/MENTOR — không ai tự đăng ký làm ADMIN (router đã chặn bằng
+    enum `RegisterRole`, đây là lớp chặn thứ hai ở tầng service).
+    """
+    if role not in (Role.INTERN, Role.MENTOR):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Chỉ được đăng ký với vai trò INTERN hoặc MENTOR",
+        )
     # Conflict check includes soft-deleted rows (email has a UNIQUE index).
     if db.scalar(select(User.id).where(User.email == email)) is not None:
         raise HTTPException(
@@ -36,8 +55,8 @@ def register(db: Session, *, full_name: str, email: str, password: str) -> User:
         full_name=full_name,
         email=email,
         password_hash=security.hash_password(password),
-        role=Role.INTERN,          # register only ever creates INTERN
-        status=UserStatus.ACTIVE,
+        role=role,
+        status=UserStatus.ACTIVE if role == Role.INTERN else UserStatus.PENDING,
     )
     db.add(user)
     db.commit()
@@ -52,6 +71,10 @@ def authenticate(db: Session, email: str, password: str) -> User:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
+        )
+    if user.status == UserStatus.PENDING:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=PENDING_APPROVAL_DETAIL,
         )
     if user.status == UserStatus.LOCKED:
         raise HTTPException(
@@ -85,6 +108,10 @@ def refresh_access_token(db: Session, raw_refresh: str) -> str:
     if user is None or user.deleted_at is not None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token",
+        )
+    if user.status == UserStatus.PENDING:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=PENDING_APPROVAL_DETAIL,
         )
     if user.status == UserStatus.LOCKED:
         raise HTTPException(

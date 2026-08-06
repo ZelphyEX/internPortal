@@ -1,4 +1,6 @@
 """Roadmap / Module / module-document schemas."""
+from datetime import date
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.document import DocumentType
@@ -13,6 +15,9 @@ class ModuleMetaFields(BaseModel):
         default=None, max_length=100, description='Free text, e.g. "2 tuần"',
     )
     key_skills: list[str] = []
+    # Hạn hoàn thành chặng học — frontend dùng để hiển thị "còn N ngày".
+    start_date: date | None = None
+    end_date: date | None = None
 
 
 # ---------- Roadmap ----------
@@ -35,12 +40,44 @@ class RoadmapOut(BaseModel):
 
 
 # ---------- Roadmap detail (nested) ----------
-class LessonInModule(BaseModel):
-    module_document_id: int
+class LessonAttachmentOut(BaseModel):
+    """Tài liệu đính kèm hiển thị ngay dưới một bài học."""
+    attachment_id: int
     document_id: int
     title: str
     type: DocumentType
+    content_url: str
     position: int
+
+
+class LessonInModule(BaseModel):
+    module_document_id: int
+    #: NULL khi bài học được tạo tay (chỉ có tên + link), không lấy từ Thư viện.
+    document_id: int | None = None
+    title: str
+    #: Link mở khi bấm vào tên bài học (video / bài giảng).
+    content_url: str | None = None
+    type: DocumentType | None = None
+    position: int
+    attachments: list[LessonAttachmentOut] = []
+
+
+class LessonCreate(BaseModel):
+    """POST /modules/{id}/lessons — tạo bài học bằng tên + link."""
+    title: str = Field(min_length=1, max_length=255)
+    content_url: str = Field(min_length=1, description="Link video/bài giảng")
+    position: int = 0
+
+
+class LessonUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    content_url: str | None = Field(default=None, min_length=1)
+    position: int | None = None
+
+
+class AttachDocRequest(BaseModel):
+    """POST /module-documents/{id}/attachments — đính tài liệu vào bài học."""
+    document_ids: list[int] = Field(min_length=1)
 
 
 class ModuleWithDocs(ModuleMetaFields):
@@ -99,5 +136,7 @@ class AssignDocsRequest(BaseModel):
 class ModuleDocumentOut(BaseModel):
     module_document_id: int
     module_id: int
-    document_id: int
+    document_id: int | None = None
+    title: str
+    content_url: str | None = None
     position: int

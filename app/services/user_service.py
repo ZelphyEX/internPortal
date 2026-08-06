@@ -76,8 +76,37 @@ def serialize_list(db: Session, users: list[User]) -> list[UserListItem]:
     return serialize(db, users, UserListItem)
 
 
-def create_user(db: Session, data: UserCreate) -> User:
-    """Create a MENTOR/ADMIN account. 409 if the email already exists."""
+# --------------------------------------------------------------------------- #
+# Luật quản lý tài khoản (ai được tạo/xoá vai trò nào)
+#
+#   MENTOR : chỉ thao tác được với INTERN. Không tạo/xoá MENTOR hay ADMIN khác.
+#   ADMIN  : tạo/xoá được INTERN và MENTOR, và duyệt Mentor đang chờ.
+#   Không ai tạo/xoá được tài khoản ADMIN qua API — dùng scripts/create_user.py.
+# --------------------------------------------------------------------------- #
+_MANAGEABLE_ROLES: dict[Role, set[Role]] = {
+    Role.MENTOR: {Role.INTERN},
+    Role.ADMIN: {Role.INTERN, Role.MENTOR},
+}
+
+
+def _assert_can_manage(actor: User, target_role: Role, action: str) -> None:
+    allowed = _MANAGEABLE_ROLES.get(actor.role, set())
+    if target_role not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                f"Vai trò {actor.role.value} không được phép {action} tài khoản "
+                f"{target_role.value}."
+            ),
+        )
+
+
+def create_user(db: Session, data: UserCreate, actor: User) -> User:
+    """Tạo tài khoản mới. 409 nếu email đã tồn tại, 403 nếu vượt quyền.
+
+    MENTOR chỉ tạo được INTERN; ADMIN tạo được INTERN/MENTOR.
+    """
+    _assert_can_manage(actor, data.role, "tạo")
     # Conflict check includes soft-deleted rows (email has a UNIQUE index).
     if db.scalar(select(User.id).where(User.email == data.email)) is not None:
         raise HTTPException(
@@ -88,6 +117,7 @@ def create_user(db: Session, data: UserCreate) -> User:
         email=data.email,
         password_hash=security.hash_password(data.password),
         role=data.role,
+        # Tài khoản do người có quyền tạo thì dùng được ngay, không cần duyệt.
         status=UserStatus.ACTIVE,
     )
     db.add(user)
@@ -96,13 +126,33 @@ def create_user(db: Session, data: UserCreate) -> User:
     return user
 
 
+def approve_mentor(db: Session, target: User) -> User:
+    """ADMIN duyệt một tài khoản MENTOR đang chờ: PENDING -> ACTIVE."""
+    if target.role != Role.MENTOR:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Chỉ tài khoản MENTOR mới cần duyệt.",
+        )
+    if target.status != UserStatus.PENDING:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Tài khoản này không ở trạng thái chờ duyệt.",
+        )
+    target.status = UserStatus.ACTIVE
+    db.commit()
+    db.refresh(target)
+    return target
+
+
 def set_status(db: Session, target: User, new_status: UserStatus, actor: User) -> User:
-    """Lock/unlock `target`. Refuses to lock the caller's own account (400)."""
+    """Lock/unlock `target`. Refuses to lock the caller's own account (400)
+    và áp cùng luật vai trò như tạo/xoá (MENTOR không khoá được MENTOR/ADMIN)."""
     if new_status == UserStatus.LOCKED and target.id == actor.id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="You cannot lock your own account",
         )
+    _assert_can_manage(actor, target.role, "khoá/mở khoá")
     target.status = new_status
     db.commit()
     db.refresh(target)
@@ -151,12 +201,17 @@ def update_profile(db: Session, target: User, data: UserProfileUpdate) -> User:
 
 
 def soft_delete(db: Session, target: User, actor: User) -> None:
-    """Soft-delete `target` (set deleted_at). Refuses self-deletion (400)."""
+    """Soft-delete `target` (set deleted_at).
+
+    Từ chối tự xoá chính mình (400) và xoá vượt quyền (403): MENTOR chỉ xoá được
+    INTERN, ADMIN xoá được INTERN/MENTOR, không ai xoá được tài khoản ADMIN.
+    """
     if target.id == actor.id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="You cannot delete your own account",
         )
+    _assert_can_manage(actor, target.role, "xoá")
     if target.deleted_at is None:
         target.deleted_at = _now()
         db.commit()

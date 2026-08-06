@@ -30,6 +30,9 @@ class Role(str, enum.Enum):
 class UserStatus(str, enum.Enum):
     ACTIVE = "ACTIVE"
     LOCKED = "LOCKED"
+    # Đăng ký làm MENTOR nhưng chưa được ADMIN duyệt: chưa đăng nhập được,
+    # nằm trong hàng đợi ở tab "Mentor" của Admin (PATCH /users/{id}/approve).
+    PENDING = "PENDING"
 
 
 class User(TimestampMixin, Base):

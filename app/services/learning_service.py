@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.assignment import LessonProgress, RoadmapAssignment
-from app.models.roadmap import Module, ModuleDocument, Roadmap
+from app.models.roadmap import LessonAttachment, Module, ModuleDocument, Roadmap
 from app.models.user import User
 from app.schemas.learning import (
     CompleteResponse,
@@ -23,6 +23,7 @@ from app.schemas.learning import (
     MyRoadmapItem,
 )
 from app.services import progress
+from app.services import roadmap_service as roadmap_svc
 
 
 def _now() -> datetime:
@@ -84,7 +85,11 @@ def get_my_roadmap_detail(db: Session, user: User, assignment_id: int) -> MyRoad
         .options(
             selectinload(Roadmap.modules)
             .selectinload(Module.module_documents)
-            .selectinload(ModuleDocument.document)
+            .selectinload(ModuleDocument.document),
+            selectinload(Roadmap.modules)
+            .selectinload(Module.module_documents)
+            .selectinload(ModuleDocument.attachments)
+            .selectinload(LessonAttachment.document),
         )
     )
     if roadmap is None:
@@ -110,11 +115,14 @@ def get_my_roadmap_detail(db: Session, user: User, assignment_id: int) -> MyRoad
             lessons.append(
                 LessonDetail(
                     module_document_id=md.id,
-                    title=md.document.title,
-                    type=md.document.type,
-                    content_url=md.document.content_url,
+                    # Bài học tạo tay có tên/link riêng; bài học lấy từ Thư viện thì
+                    # rơi về tên/link của tài liệu gốc (xem ModuleDocument.display_*).
+                    title=md.display_title,
+                    type=md.document.type if md.document is not None else None,
+                    content_url=md.display_url,
                     completed=is_done,
                     completed_at=p.completed_at if p else None,
+                    attachments=[roadmap_svc.to_attachment_out(a) for a in md.attachments],
                 )
             )
         modules.append(
@@ -126,6 +134,8 @@ def get_my_roadmap_detail(db: Session, user: User, assignment_id: int) -> MyRoad
                 week_number=m.week_number,
                 duration_text=m.duration_text,
                 key_skills=m.key_skills or [],
+                start_date=m.start_date,
+                end_date=m.end_date,
                 lessons=lessons,
             )
         )

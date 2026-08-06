@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from app.models.assignment import AssignmentStatus
 from app.models.document import DocumentType
-from app.schemas.roadmap import ModuleMetaFields
+from app.schemas.roadmap import LessonAttachmentOut, ModuleMetaFields
 
 
 class MyRoadmapItem(BaseModel):
@@ -22,10 +22,14 @@ class MyRoadmapItem(BaseModel):
 class LessonDetail(BaseModel):
     module_document_id: int
     title: str
-    type: DocumentType
-    content_url: str
+    #: None với bài học tạo tay (không gắn tài liệu nào trong Thư viện).
+    type: DocumentType | None = None
+    #: Link mở khi Intern bấm vào tên bài học.
+    content_url: str | None = None
     completed: bool
     completed_at: datetime | None = None
+    #: Tài liệu đính kèm hiển thị ngay dưới bài học.
+    attachments: list[LessonAttachmentOut] = []
 
 
 class ModuleWithLessons(ModuleMetaFields):

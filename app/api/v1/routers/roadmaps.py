@@ -13,7 +13,11 @@ from app.core.pagination import (
 )
 from app.schemas.common import Page
 from app.schemas.roadmap import (
+    AttachDocRequest,
     AssignDocsRequest,
+    LessonAttachmentOut,
+    LessonCreate,
+    LessonUpdate,
     ModuleCreate,
     ModuleDocumentOut,
     ModuleOut,
@@ -110,5 +114,67 @@ def assign_documents(
 def remove_module_document(
     module_document_id: int, db: DbSession, current_user: MentorRequired,
 ) -> None:
-    """Remove a document from a module (link only; keeps the document)."""
+    """Xoá một bài học khỏi chặng (không xoá tài liệu gốc trong Thư viện)."""
     svc.delete_module_document(db, svc.get_module_document(db, module_document_id))
+
+
+# ---------- Bài học tạo tay (tên + link) ----------
+@router.post(
+    "/modules/{module_id}/lessons",
+    response_model=ModuleDocumentOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_lesson(
+    module_id: int, payload: LessonCreate, db: DbSession, current_user: MentorRequired,
+) -> ModuleDocumentOut:
+    """Tạo bài học bằng **tên + link** (video/bài giảng).
+
+    Khác `POST /modules/{id}/documents` (gán tài liệu có sẵn từ Thư viện):
+    bài học tạo ở đây không sinh bản ghi nào trong Thư viện Tài liệu.
+    """
+    return svc.create_lesson(db, module_id, payload)
+
+
+@router.patch("/module-documents/{module_document_id}", response_model=ModuleDocumentOut)
+def update_lesson(
+    module_document_id: int,
+    payload: LessonUpdate,
+    db: DbSession,
+    current_user: MentorRequired,
+) -> ModuleDocumentOut:
+    """Sửa tên / link / thứ tự của một bài học."""
+    md = svc.get_module_document(db, module_document_id)
+    return svc.update_lesson(db, md, payload)
+
+
+# ---------- Tài liệu đính kèm dưới bài học ----------
+@router.post(
+    "/module-documents/{module_document_id}/attachments",
+    response_model=list[LessonAttachmentOut],
+    status_code=status.HTTP_201_CREATED,
+)
+def attach_documents(
+    module_document_id: int,
+    payload: AttachDocRequest,
+    db: DbSession,
+    current_user: MentorRequired,
+) -> list[LessonAttachmentOut]:
+    """Đính tài liệu (từ Thư viện) vào một bài học — hiển thị ngay dưới bài học.
+    Tài liệu đã đính sẽ được bỏ qua, không báo lỗi."""
+    md = svc.get_module_document(db, module_document_id)
+    return svc.attach_documents(db, md, payload.document_ids)
+
+
+@router.delete(
+    "/module-documents/{module_document_id}/attachments/{document_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def detach_document(
+    module_document_id: int,
+    document_id: int,
+    db: DbSession,
+    current_user: MentorRequired,
+) -> None:
+    """Gỡ tài liệu khỏi bài học (không xoá tài liệu gốc)."""
+    svc.get_module_document(db, module_document_id)  # 404 nếu bài học không tồn tại
+    svc.detach_document(db, module_document_id, document_id)

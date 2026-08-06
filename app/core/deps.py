@@ -99,6 +99,12 @@ def get_current_user(
             detail="User not found",
             headers=_UNAUTH_HEADERS,
         )
+    if user.status == UserStatus.PENDING:
+        # Mentor đăng ký nhưng Admin chưa duyệt -> chưa được dùng bất kỳ API nào.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="PENDING_APPROVAL: Tài khoản Mentor của bạn đang chờ Quản trị viên duyệt.",
+        )
     if user.status == UserStatus.LOCKED:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

@@ -108,8 +108,12 @@ class UserProfileUpdate(BaseModel):
 
 
 class UserCreate(BaseModel):
-    """POST /users request (ADMIN creates MENTOR/ADMIN accounts)."""
+    """POST /users request.
+
+    MENTOR chỉ tạo được `INTERN`; ADMIN tạo được `INTERN` hoặc `MENTOR`.
+    Không tạo được tài khoản ADMIN qua API (dùng `scripts/create_user.py`).
+    """
     full_name: str = Field(min_length=1, max_length=255)
     email: EmailStr
     password: str = Field(min_length=6, max_length=128)
-    role: Role = Role.MENTOR
+    role: Role = Role.INTERN
