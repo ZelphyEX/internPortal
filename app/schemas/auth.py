@@ -19,7 +19,9 @@ class RegisterRequest(BaseModel):
     # INTERN -> dùng được ngay (ACTIVE).
     # MENTOR -> tạo ở trạng thái PENDING, phải chờ ADMIN duyệt mới đăng nhập được.
     role: RegisterRole = RegisterRole.INTERN
-
+class VerifyEmailRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=6, max_length=6)
 
 
 class LoginRequest(BaseModel):

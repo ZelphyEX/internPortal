@@ -62,6 +62,14 @@ class Settings(BaseSettings):
     # Public base to build the returned URL, e.g. https://storage.googleapis.com/<bucket>
     S3_PUBLIC_URL_BASE: str = ""
 
+    # --- SMTP / Email ---
+    SMTP_HOST: str | None = None
+    SMTP_PORT: int = 587
+    SMTP_TLS: bool = True
+    SMTP_USER: str | None = None
+    SMTP_PASSWORD: str | None = None
+    SMTP_FROM: str | None = None
+
     @property
     def cors_origins(self) -> list[str]:
         """BACKEND_CORS_ORIGINS parsed into a list for CORSMiddleware."""

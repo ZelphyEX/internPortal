@@ -1,5 +1,4 @@
-"""Auth & profile router (API_SPEC mục 2)."""
-from fastapi import APIRouter, status
+from fastapi import APIRouter, status, BackgroundTasks
 
 from app.core.deps import CurrentUser, DbSession
 from app.schemas.auth import (
@@ -12,25 +11,37 @@ from app.schemas.auth import (
     RegisterRequest,
     TokenResponse,
     GoogleLoginRequest,
+    VerifyEmailRequest,
 )
 from app.models.user import Role
 from app.schemas.user import MeOut, RegisterOut, UserUpdate
-from app.services import auth_service
+from app.services import auth_service, email_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/register", response_model=RegisterOut, status_code=status.HTTP_201_CREATED)
-def register(payload: RegisterRequest, db: DbSession) -> RegisterOut:
-    """Public. Tạo tài khoản INTERN (dùng được ngay) hoặc MENTOR (trạng thái
-    PENDING, phải chờ ADMIN duyệt mới đăng nhập được). 409 nếu email đã tồn tại."""
-    return auth_service.register(
+def register(payload: RegisterRequest, background_tasks: BackgroundTasks, db: DbSession) -> RegisterOut:
+    """Public. Tạo tài khoản INTERN hoặc MENTOR (trạng thái PENDING, cần xác thực email)."""
+    user = auth_service.register(
         db,
         full_name=payload.full_name,
         email=payload.email,
         password=payload.password,
         role=Role(payload.role.value),
     )
+    if hasattr(user, "mock_verification_code") and user.mock_verification_code:
+        background_tasks.add_task(
+            email_service.send_verification_email, user.email, user.mock_verification_code
+        )
+    return user
+
+
+@router.post("/verify-email", status_code=status.HTTP_200_OK)
+def verify_email(payload: VerifyEmailRequest, db: DbSession):
+    """Kích hoạt tài khoản bằng mã xác nhận gửi qua email."""
+    auth_service.verify_email(db, email=payload.email, code=payload.code)
+    return {"detail": "Email verified successfully. Account is now active."}
 
 
 
