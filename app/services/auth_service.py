@@ -86,7 +86,7 @@ def register(
         resolved_status = UserStatus.PENDING
     elif email_lower.endswith("@edu.gimasys.com"):
         resolved_role = Role.INTERN
-        resolved_status = UserStatus.PENDING
+        resolved_status = UserStatus.ACTIVE
     else:
         resolved_role = role
         resolved_status = UserStatus.PENDING
@@ -119,65 +119,7 @@ def register(
     db.commit()
     db.refresh(user)
 
-    # Generate and store verification code for non-exception accounts
-    if resolved_status == UserStatus.PENDING and settings.EMAIL_VERIFICATION_REQUIRED:
-        code = f"{random.randint(100000, 999999):06d}"
-        verification_codes[email_lower] = code
-        user.verification_code = code
-        # Try to send via SMTP; fall back to console if config missing
-        try:
-            if settings.SMTP_HOST and settings.SMTP_USER and settings.SMTP_PASSWORD:
-                import smtplib
-                from email.message import EmailMessage
-
-                msg = EmailMessage()
-                msg["Subject"] = "Mã xác thực tài khoản Intern Portal"
-                msg["From"] = settings.SMTP_FROM or settings.SMTP_USER
-                msg["To"] = email_lower
-                msg.set_content(
-                    f"Xin chào,\n\nMã xác thực của bạn là: {code}\n\nVui lòng nhập mã này trong giao diện đăng ký để kích hoạt tài khoản. Nếu bạn không yêu cầu, hãy bỏ qua email này."
-                )
-                with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
-                    if getattr(settings, "SMTP_TLS", True):
-                        server.starttls()
-                    server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-                    server.send_message(msg)
-            else:
-                print(f"[SMTP NOT CONFIGURED] Verification code for {email_lower} is {code}")
-        except Exception as exc:
-            print(f"[SMTP ERROR] Failed to send verification email to {email_lower}: {exc}")
-            print(f"[MOCK EMAIL] Verification code for {email_lower} is {code}")
-    else:
-        user.verification_code = None
-
     return user
-
-
-def verify_email(db: Session, email: str, code: str) -> None:
-    """Xác thực mã đăng ký của người dùng để chuyển trạng thái từ PENDING sang ACTIVE."""
-    email_lower = email.lower().strip()
-    saved_code = verification_codes.get(email_lower)
-    if not saved_code or saved_code != code.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Mã xác nhận không chính xác hoặc đã hết hạn.",
-        )
-
-    # Load user and update status
-    user = db.scalar(select(User).where(User.email == email_lower, User.deleted_at.is_(None)))
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Không tìm thấy tài khoản người dùng.",
-        )
-
-    user.status = UserStatus.ACTIVE
-    db.add(user)
-    db.commit()
-
-    # Clean up verification code
-    verification_codes.pop(email_lower, None)
-    print(f"[SMTP] Email {email_lower} successfully verified.")
 
 
 def authenticate(db: Session, email: str, password: str) -> User:

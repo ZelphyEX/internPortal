@@ -16,7 +16,6 @@ class RegisterOut(BaseModel):
     email: EmailStr
     role: Role
     status: UserStatus
-    mock_verification_code: str | None = None
 
 
 class MeOut(BaseModel):
