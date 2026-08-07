@@ -76,6 +76,12 @@ def update_me(payload: UserUpdate, db: DbSession, current_user: CurrentUser) -> 
     return auth_service.update_me(db, current_user, payload.model_dump(exclude_unset=True))
 
 
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+def delete_me(db: DbSession, current_user: CurrentUser) -> None:
+    """Xóa tài khoản của chính mình (xoá mềm)."""
+    auth_service.delete_self(db, current_user)
+
+
 @router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
 def change_password(
     payload: ChangePasswordRequest, db: DbSession, current_user: CurrentUser,

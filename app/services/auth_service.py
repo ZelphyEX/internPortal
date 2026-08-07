@@ -227,3 +227,19 @@ def update_me(db: Session, user: User, fields: dict) -> User:
     db.commit()
     db.refresh(user)
     return user
+
+
+def delete_self(db: Session, user: User) -> None:
+    """Xóa tài khoản của chính mình (xoá mềm bằng cách đặt `deleted_at`).
+    Không cho phép ADMIN tự xóa chính mình để tránh hệ thống mất quản trị viên.
+    """
+    if user.role == Role.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Tài khoản Quản trị viên không thể tự xóa.",
+        )
+    
+    if user.deleted_at is None:
+        user.deleted_at = _now()
+        db.add(user)
+        db.commit()
