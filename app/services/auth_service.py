@@ -6,19 +6,29 @@ Routers stay thin — they call these functions. Security rules:
   * changing the password revokes all of the user's refresh tokens
 """
 import random
+import dns.resolver  # MX record lookup for email existence
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.core import security
+from app.core.config import settings
 from app.models.auth import RefreshToken
 from app.models.user import Role, User, UserStatus
 
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+def _has_mx_record(email: str) -> bool:
+    """Check if the email's domain has an MX record (basic existence check)."""
+    domain = email.split('@')[-1].lower()
+    try:
+        answers = dns.resolver.resolve(domain, 'MX')
+        return len(answers) > 0
+    except Exception:
+        return False
 
 
 # Global in-memory storage for verification codes: email -> 6-digit code string
@@ -59,6 +69,8 @@ def register(
     """
     _validate_email_domain(email)
 
+    # MX record check disabled – any address under allowed domains is accepted
+
     email_lower = email.lower().strip()
     if email_lower == "admin@example.com":
         resolved_role = Role.ADMIN
@@ -78,6 +90,7 @@ def register(
     else:
         resolved_role = role
         resolved_status = UserStatus.PENDING
+
 
     # If there is a soft-deleted user with the same email, rename it to free up the UNIQUE constraint
     soft_deleted_user = db.scalar(
@@ -107,12 +120,35 @@ def register(
     db.refresh(user)
 
     # Generate and store verification code for non-exception accounts
-    if resolved_status == UserStatus.PENDING:
-        code = str(random.randint(100000, 999999))
+    if resolved_status == UserStatus.PENDING and settings.EMAIL_VERIFICATION_REQUIRED:
+        code = f"{random.randint(100000, 999999):06d}"
         verification_codes[email_lower] = code
-        user.mock_verification_code = code
+        user.verification_code = code
+        # Try to send via SMTP; fall back to console if config missing
+        try:
+            if settings.SMTP_HOST and settings.SMTP_USER and settings.SMTP_PASSWORD:
+                import smtplib
+                from email.message import EmailMessage
+
+                msg = EmailMessage()
+                msg["Subject"] = "Mã xác thực tài khoản Intern Portal"
+                msg["From"] = settings.SMTP_FROM or settings.SMTP_USER
+                msg["To"] = email_lower
+                msg.set_content(
+                    f"Xin chào,\n\nMã xác thực của bạn là: {code}\n\nVui lòng nhập mã này trong giao diện đăng ký để kích hoạt tài khoản. Nếu bạn không yêu cầu, hãy bỏ qua email này."
+                )
+                with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
+                    if getattr(settings, "SMTP_TLS", True):
+                        server.starttls()
+                    server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+                    server.send_message(msg)
+            else:
+                print(f"[SMTP NOT CONFIGURED] Verification code for {email_lower} is {code}")
+        except Exception as exc:
+            print(f"[SMTP ERROR] Failed to send verification email to {email_lower}: {exc}")
+            print(f"[MOCK EMAIL] Verification code for {email_lower} is {code}")
     else:
-        user.mock_verification_code = None
+        user.verification_code = None
 
     return user
 

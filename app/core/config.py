@@ -31,6 +31,17 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     GOOGLE_CLIENT_ID: str | None = None
 
+    # --- Email verification toggle ---
+    EMAIL_VERIFICATION_REQUIRED: bool = True  # Require admin approval / email verification
+
+    # --- SMTP settings for email verification ---
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_TLS: bool = True
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = ""
+
     # --- Cloud storage (bucket) ---
     # "local" (dev) | "gcs" (Google Cloud Storage) | "s3" (S3-compatible)
     STORAGE_BACKEND: str = "local"
