@@ -11,7 +11,6 @@ from app.schemas.auth import (
     RefreshRequest,
     RegisterRequest,
     TokenResponse,
-    VerifyEmailRequest,
     GoogleLoginRequest,
 )
 from app.models.user import Role
@@ -33,12 +32,6 @@ def register(payload: RegisterRequest, db: DbSession) -> RegisterOut:
         role=Role(payload.role.value),
     )
 
-
-@router.post("/verify-email", status_code=status.HTTP_200_OK)
-def verify_email(payload: VerifyEmailRequest, db: DbSession):
-    """Kích hoạt tài khoản bằng mã xác nhận gửi qua email."""
-    auth_service.verify_email(db, email=payload.email, code=payload.code)
-    return {"detail": "Email verified successfully. Account is now active."}
 
 
 @router.post("/google", response_model=TokenResponse)

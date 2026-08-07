@@ -21,10 +21,6 @@ class RegisterRequest(BaseModel):
     role: RegisterRole = RegisterRole.INTERN
 
 
-class VerifyEmailRequest(BaseModel):
-    email: EmailStr
-    code: str = Field(min_length=6, max_length=6)
-
 
 class LoginRequest(BaseModel):
     email: EmailStr

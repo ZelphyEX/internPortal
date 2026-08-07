@@ -53,9 +53,9 @@ PENDING_APPROVAL_DETAIL = (
 def register(
     db: Session, *, full_name: str, email: str, password: str, role: Role = Role.INTERN,
 ) -> User:
-    """Tự đăng ký. Quyết định vai trò dựa trên tên miền email.
-    Tất cả các tài khoản tự đăng ký mới sẽ có trạng thái PENDING và cần
-    phải xác thực email qua mã gửi về trước khi có thể hoạt động.
+    """Tự đăng ký. Quyết định vai trò dựa trên tên miền email:
+      * @gimasys.com -> MENTOR (trạng thái PENDING, cần admin duyệt)
+      * @edu.gimasys.com -> INTERN (trạng thái ACTIVE, dùng được ngay)
     """
     _validate_email_domain(email)
 
@@ -74,10 +74,10 @@ def register(
         resolved_status = UserStatus.PENDING
     elif email_lower.endswith("@edu.gimasys.com"):
         resolved_role = Role.INTERN
-        resolved_status = UserStatus.PENDING
+        resolved_status = UserStatus.ACTIVE
     else:
         resolved_role = role
-        resolved_status = UserStatus.PENDING
+        resolved_status = UserStatus.ACTIVE if resolved_role == Role.INTERN else UserStatus.PENDING
 
     # If there is a soft-deleted user with the same email, rename it to free up the UNIQUE constraint
     soft_deleted_user = db.scalar(
@@ -105,45 +105,7 @@ def register(
     db.add(user)
     db.commit()
     db.refresh(user)
-
-    # Generate and store verification code for non-exception accounts
-    if resolved_status == UserStatus.PENDING:
-        code = str(random.randint(100000, 999999))
-        verification_codes[email_lower] = code
-        # Attach dynamic attribute to the returned User object for Pydantic serialization
-        user.mock_verification_code = code
-        print(f"[MOCK EMAIL] Verification code for {email_lower} is {code}")
-    else:
-        user.mock_verification_code = None
-
     return user
-
-
-def verify_email(db: Session, email: str, code: str) -> None:
-    """Xác thực mã đăng ký của người dùng để chuyển trạng thái từ PENDING sang ACTIVE."""
-    email_lower = email.lower().strip()
-    saved_code = verification_codes.get(email_lower)
-    if not saved_code or saved_code != code.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Mã xác nhận không chính xác hoặc đã hết hạn.",
-        )
-
-    # Load user and update status
-    user = db.scalar(select(User).where(User.email == email_lower, User.deleted_at.is_(None)))
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Không tìm thấy tài khoản người dùng.",
-        )
-
-    user.status = UserStatus.ACTIVE
-    db.add(user)
-    db.commit()
-
-    # Clean up verification code
-    verification_codes.pop(email_lower, None)
-    print(f"[MOCK EMAIL] Email {email_lower} successfully verified.")
 
 
 def authenticate(db: Session, email: str, password: str) -> User:
