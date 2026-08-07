@@ -26,6 +26,18 @@ def _get_active_user_by_email(db: Session, email: str) -> User | None:
     )
 
 
+def _validate_email_domain(email: str) -> None:
+    email_lower = email.lower().strip()
+    if email_lower in ("admin@example.com", "mentor@example.com", "intern@example.com"):
+        return
+    if email_lower.endswith("@gimasys.com") or email_lower.endswith("@edu.gimasys.com"):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Chỉ chấp nhận email thuộc tên miền @gimasys.com hoặc @edu.gimasys.com.",
+    )
+
+
 #: Thông báo dùng chung khi tài khoản MENTOR chưa được duyệt. Frontend dựa vào
 #: chuỗi mã `PENDING_APPROVAL` để chuyển sang màn "đang chờ duyệt".
 PENDING_APPROVAL_DETAIL = (
@@ -36,16 +48,33 @@ PENDING_APPROVAL_DETAIL = (
 def register(
     db: Session, *, full_name: str, email: str, password: str, role: Role = Role.INTERN,
 ) -> User:
-    """Tự đăng ký. INTERN dùng được ngay; MENTOR phải chờ ADMIN duyệt.
-
-    Chỉ nhận INTERN/MENTOR — không ai tự đăng ký làm ADMIN (router đã chặn bằng
-    enum `RegisterRole`, đây là lớp chặn thứ hai ở tầng service).
+    """Tự đăng ký. Quyết định vai trò dựa trên tên miền email:
+      * @gimasys.com hoặc mentor@example.com -> MENTOR
+      * @edu.gimasys.com hoặc intern@example.com -> INTERN
+      * admin@example.com -> ADMIN
     """
-    if role not in (Role.INTERN, Role.MENTOR):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Chỉ được đăng ký với vai trò INTERN hoặc MENTOR",
-        )
+    _validate_email_domain(email)
+
+    email_lower = email.lower().strip()
+    if email_lower == "admin@example.com":
+        resolved_role = Role.ADMIN
+        resolved_status = UserStatus.ACTIVE
+    elif email_lower == "mentor@example.com":
+        resolved_role = Role.MENTOR
+        resolved_status = UserStatus.ACTIVE
+    elif email_lower == "intern@example.com":
+        resolved_role = Role.INTERN
+        resolved_status = UserStatus.ACTIVE
+    elif email_lower.endswith("@gimasys.com"):
+        resolved_role = Role.MENTOR
+        resolved_status = UserStatus.PENDING
+    elif email_lower.endswith("@edu.gimasys.com"):
+        resolved_role = Role.INTERN
+        resolved_status = UserStatus.ACTIVE
+    else:
+        resolved_role = role
+        resolved_status = UserStatus.ACTIVE if resolved_role == Role.INTERN else UserStatus.PENDING
+
     # Conflict check includes soft-deleted rows (email has a UNIQUE index).
     if db.scalar(select(User.id).where(User.email == email)) is not None:
         raise HTTPException(
@@ -55,8 +84,8 @@ def register(
         full_name=full_name,
         email=email,
         password_hash=security.hash_password(password),
-        role=role,
-        status=UserStatus.ACTIVE if role == Role.INTERN else UserStatus.PENDING,
+        role=resolved_role,
+        status=resolved_status,
     )
     db.add(user)
     db.commit()
@@ -65,6 +94,7 @@ def register(
 
 
 def authenticate(db: Session, email: str, password: str) -> User:
+    _validate_email_domain(email)
     user = _get_active_user_by_email(db, email)
     # Same 401 for unknown email and wrong password (no user enumeration).
     if user is None or not security.verify_password(password, user.password_hash):
