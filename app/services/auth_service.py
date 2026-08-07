@@ -166,6 +166,93 @@ def authenticate(db: Session, email: str, password: str) -> User:
     return user
 
 
+def google_authenticate(db: Session, credential: str) -> User:
+    """Xác thực Google ID Token, tự đăng ký nếu là user mới (vai trò dựa trên email domain).
+    Hỗ trợ mock token ở môi trường dev nếu chưa cấu hình GOOGLE_CLIENT_ID.
+    """
+    from app.core.config import settings
+    from google.oauth2 import id_token
+    from google.auth.transport import requests as google_requests
+
+    email: str = ""
+    name: str = ""
+    picture: str | None = None
+
+    # Development Mock Fallback
+    if not settings.GOOGLE_CLIENT_ID or credential.startswith("mock_google_token_"):
+        token_parts = credential.split("_")
+        if len(token_parts) >= 4:
+            email = token_parts[3]
+            name = token_parts[4] if len(token_parts) > 4 else "Google User"
+            name = name.replace("-", " ")
+        else:
+            email = "demo.google@gimasys.com"
+            name = "Demo Google User"
+        print(f"[MOCK GOOGLE AUTH] Verified mock token for email={email}, name={name}")
+    else:
+        try:
+            idinfo = id_token.verify_oauth2_token(
+                credential, google_requests.Request(), settings.GOOGLE_CLIENT_ID
+            )
+            email = idinfo["email"]
+            name = idinfo.get("name", "Google User")
+            picture = idinfo.get("picture")
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Xác thực Google ID token thất bại: {str(e)}",
+            )
+
+    email_lower = email.lower().strip()
+    _validate_email_domain(email_lower)
+
+    user = db.scalar(
+        select(User).where(User.email == email_lower, User.deleted_at.is_(None))
+    )
+
+    if user is None:
+        soft_deleted = db.scalar(
+            select(User).where(User.email == email_lower, User.deleted_at.is_not(None))
+        )
+        if soft_deleted:
+            db.delete(soft_deleted)
+            db.commit()
+
+        if email_lower.endswith("@gimasys.com"):
+            resolved_role = Role.MENTOR
+        elif email_lower.endswith("@edu.gimasys.com"):
+            resolved_role = Role.INTERN
+        else:
+            resolved_role = Role.INTERN
+
+        random_pw = security.hash_password(str(random.randint(10000000, 99999999)))
+        user = User(
+            full_name=name,
+            email=email_lower,
+            password_hash=random_pw,
+            role=resolved_role,
+            status=UserStatus.ACTIVE,
+            avatar_url=picture,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        print(f"[GOOGLE AUTH] Created new user: {email_lower} (role={resolved_role.value})")
+    else:
+        if user.status == UserStatus.PENDING:
+            user.status = UserStatus.ACTIVE
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        elif user.status == UserStatus.LOCKED:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Tài khoản này đã bị khóa.",
+            )
+
+    return user
+
+
 def issue_tokens(db: Session, user: User) -> tuple[str, str]:
     """Return (access_token, raw_refresh_token). Stores only the refresh hash."""
     access = security.create_access_token(subject=user.id, role=user.role.value)

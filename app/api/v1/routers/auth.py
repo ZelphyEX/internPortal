@@ -12,6 +12,7 @@ from app.schemas.auth import (
     RegisterRequest,
     TokenResponse,
     VerifyEmailRequest,
+    GoogleLoginRequest,
 )
 from app.models.user import Role
 from app.schemas.user import MeOut, RegisterOut, UserUpdate
@@ -38,6 +39,19 @@ def verify_email(payload: VerifyEmailRequest, db: DbSession):
     """Kích hoạt tài khoản bằng mã xác nhận gửi qua email."""
     auth_service.verify_email(db, email=payload.email, code=payload.code)
     return {"detail": "Email verified successfully. Account is now active."}
+
+
+@router.post("/google", response_model=TokenResponse)
+def google_login(payload: GoogleLoginRequest, db: DbSession) -> TokenResponse:
+    """Xác thực đăng nhập hoặc đăng ký bằng Google Identity Services credential (ID Token)."""
+    user = auth_service.google_authenticate(db, payload.credential)
+    access, refresh = auth_service.issue_tokens(db, user)
+    return TokenResponse(
+        access_token=access,
+        refresh_token=refresh,
+        token_type="bearer",
+        user=LoginUser.model_validate(user),
+    )
 
 
 @router.post("/login", response_model=TokenResponse)
