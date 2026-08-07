@@ -79,8 +79,19 @@ def register(
         resolved_role = role
         resolved_status = UserStatus.PENDING
 
-    # Conflict check includes soft-deleted rows (email has a UNIQUE index).
-    if db.scalar(select(User.id).where(User.email == email)) is not None:
+    # If there is a soft-deleted user with the same email, rename it to free up the UNIQUE constraint
+    soft_deleted_user = db.scalar(
+        select(User).where(User.email == email, User.deleted_at.is_not(None))
+    )
+    if soft_deleted_user:
+        now_dt = _now()
+        timestamp = int(now_dt.timestamp())
+        soft_deleted_user.email = f"{soft_deleted_user.email}_deleted_{timestamp}"
+        db.add(soft_deleted_user)
+        db.commit()
+
+    # Conflict check includes active/un-deleted rows
+    if db.scalar(select(User.id).where(User.email == email, User.deleted_at.is_(None))) is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Email already registered",
         )
