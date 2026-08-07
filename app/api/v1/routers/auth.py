@@ -11,6 +11,7 @@ from app.schemas.auth import (
     RefreshRequest,
     RegisterRequest,
     TokenResponse,
+    VerifyEmailRequest,
 )
 from app.models.user import Role
 from app.schemas.user import MeOut, RegisterOut, UserUpdate
@@ -30,6 +31,13 @@ def register(payload: RegisterRequest, db: DbSession) -> RegisterOut:
         password=payload.password,
         role=Role(payload.role.value),
     )
+
+
+@router.post("/verify-email", status_code=status.HTTP_200_OK)
+def verify_email(payload: VerifyEmailRequest, db: DbSession):
+    """Kích hoạt tài khoản bằng mã xác nhận gửi qua email."""
+    auth_service.verify_email(db, email=payload.email, code=payload.code)
+    return {"detail": "Email verified successfully. Account is now active."}
 
 
 @router.post("/login", response_model=TokenResponse)
