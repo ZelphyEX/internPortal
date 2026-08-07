@@ -213,5 +213,8 @@ def soft_delete(db: Session, target: User, actor: User) -> None:
         )
     _assert_can_manage(actor, target.role, "xoá")
     if target.deleted_at is None:
-        target.deleted_at = _now()
+        now_dt = _now()
+        target.deleted_at = now_dt
+        timestamp = int(now_dt.timestamp())
+        target.email = f"{target.email}_deleted_{timestamp}"
         db.commit()

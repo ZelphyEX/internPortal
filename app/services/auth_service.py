@@ -231,6 +231,7 @@ def update_me(db: Session, user: User, fields: dict) -> User:
 
 def delete_self(db: Session, user: User) -> None:
     """Xóa tài khoản của chính mình (xoá mềm bằng cách đặt `deleted_at`).
+    Đồng thời đổi tên email để giải phóng ràng buộc UNIQUE, cho phép đăng ký lại.
     Không cho phép ADMIN tự xóa chính mình để tránh hệ thống mất quản trị viên.
     """
     if user.role == Role.ADMIN:
@@ -240,6 +241,9 @@ def delete_self(db: Session, user: User) -> None:
         )
     
     if user.deleted_at is None:
-        user.deleted_at = _now()
+        now_dt = _now()
+        user.deleted_at = now_dt
+        timestamp = int(now_dt.timestamp())
+        user.email = f"{user.email}_deleted_{timestamp}"
         db.add(user)
         db.commit()
