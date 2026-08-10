@@ -32,6 +32,9 @@ jobs:
           [ -z "${{ secrets.JWT_SECRET }}" ] && missing+=("secrets.JWT_SECRET")
           [ -z "${{ vars.GCS_BUCKET }}" ] && missing+=("vars.GCS_BUCKET")
           [ -z "${{ vars.GOOGLE_CLIENT_ID }}" ] && missing+=("vars.GOOGLE_CLIENT_ID")
+          # Tài khoản admin là đường vào duy nhất không phụ thuộc Google. Thiếu mật
+          # khẩu này thì không ai duyệt được Mentor mới -> hệ thống kẹt.
+          [ -z "${{ secrets.BOOTSTRAP_ADMIN_PASSWORD }}" ] && missing+=("secrets.BOOTSTRAP_ADMIN_PASSWORD")
           if [ "${#missing[@]}" -gt 0 ]; then
             echo "::error::Missing required GitHub secrets/variables: ${missing[*]}. Set them in Settings > Secrets and variables > Actions."
             exit 1
@@ -85,3 +88,5 @@ jobs:
             GCS_BUCKET=${{ vars.GCS_BUCKET }}
             GCS_PROJECT_ID=${{ vars.GCP_PROJECT_ID }}
             GOOGLE_CLIENT_ID=${{ vars.GOOGLE_CLIENT_ID }}
+            BOOTSTRAP_ADMIN_EMAIL=${{ vars.BOOTSTRAP_ADMIN_EMAIL || 'admin@gimasys.com' }}
+            BOOTSTRAP_ADMIN_PASSWORD=${{ secrets.BOOTSTRAP_ADMIN_PASSWORD }}

@@ -23,6 +23,9 @@ from app.core.config import settings
 # Token type claim values (guard against using a refresh token where an
 # access token is expected, and vice-versa).
 ACCESS_TOKEN_TYPE = "access"
+# Vé đăng ký tạm: cấp sau khi Google xác thực email nhưng tài khoản chưa tồn tại.
+# Không phải access token (type khác) nên không gọi được API nào bằng vé này.
+SIGNUP_TICKET_TYPE = "google_signup"
 
 # bcrypt only considers the first 72 bytes of a password and (since v4.1)
 # raises on longer input, so we truncate consistently in hash + verify.
@@ -92,6 +95,35 @@ def decode_access_token(token: str) -> dict:
     )
     if payload.get("type") != ACCESS_TOKEN_TYPE:
         raise jwt.InvalidTokenError("Not an access token")
+    return payload
+
+
+# --------------------------------------------------------------------------- #
+# Vé đăng ký tạm (sau khi Google đã xác thực email)
+# --------------------------------------------------------------------------- #
+def create_signup_ticket(*, email: str, full_name: str, avatar_url: str | None) -> str:
+    """JWT ngắn hạn chứng nhận "Google đã xác thực email này".
+
+    Frontend gửi lại vé kèm hồ sơ ở `POST /auth/google/complete`. Nhờ vậy email
+    trong tài khoản mới luôn là email Google đã xác thực — client không tự khai được.
+    """
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": email,
+        "name": full_name,
+        "picture": avatar_url,
+        "type": SIGNUP_TICKET_TYPE,
+        "iat": now,
+        "exp": now + timedelta(minutes=settings.SIGNUP_TICKET_EXPIRE_MINUTES),
+    }
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def decode_signup_ticket(token: str) -> dict:
+    """Giải mã vé đăng ký. Raise `jwt.PyJWTError` nếu sai/hết hạn/không phải vé."""
+    payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    if payload.get("type") != SIGNUP_TICKET_TYPE:
+        raise jwt.InvalidTokenError("Not a signup ticket")
     return payload
 
 

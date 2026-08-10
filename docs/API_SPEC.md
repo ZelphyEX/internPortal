@@ -67,20 +67,76 @@ Ràng buộc: `page >= 1`, `size` trong khoảng `1..100` (**mặc định 20**)
 
 ## 2. Nhóm API: Auth & Profile
 
-### POST /auth/register — Đăng ký (chỉ tạo INTERN)
-Quyền: công khai (không cần token).
-```json
-// Request
-{ "full_name": "Nguyen Van A", "email": "a@example.com", "password": "matkhau123" }
-```
-```json
-// Response 201
-{ "id": 12, "full_name": "Nguyen Van A", "email": "a@example.com", "role": "INTERN", "status": "ACTIVE" }
-```
-Lỗi: `409` nếu email đã tồn tại. Tài khoản MENTOR/ADMIN không tạo qua đây (xem mục 3).
+> **Đăng nhập bằng Google là đường vào duy nhất của người dùng.** Chỉ email thuộc
+> `ALLOWED_EMAIL_DOMAINS` (mặc định `gimasys.com`, `edu.gimasys.com`) được chấp nhận —
+> OAuth Consent Screen đặt là "External" nên Google không tự chặn, backend phải chặn.
+> Vai trò suy ra từ tên miền: `@edu.gimasys.com` → INTERN (`ACTIVE`),
+> `@gimasys.com` → MENTOR (`PENDING`, chờ ADMIN duyệt). Muốn đổi vai trò về sau thì
+> dùng **yêu cầu chuyển vai trò** (mục 3b).
 
-### POST /auth/login — Đăng nhập
+### POST /auth/register — ⛔ ĐÃ TẮT
+Quyền: công khai. Luôn trả `403`.
+Trước đây endpoint này cho tự đăng ký bằng mật khẩu mà **không xác thực email**, nên
+ai cũng tạo được tài khoản mang email của người khác. Tài khoản giờ chỉ sinh ra từ
+`POST /auth/google` + `POST /auth/google/complete`.
+
+### POST /auth/google — Đăng nhập bằng Google (bước 1)
 Quyền: công khai.
+```json
+// Request — credential = Google ID token do Google Identity Services trả về
+{ "credential": "eyJhbGciOiJSUzI1NiIs..." }
+```
+```json
+// Response 200 — đã có tài khoản
+{
+  "status": "AUTHENTICATED",
+  "tokens": {
+    "access_token": "eyJhbGci...", "refresh_token": "d9f3...", "token_type": "bearer",
+    "user": { "id": 12, "full_name": "Nguyen Van A", "email": "a@edu.gimasys.com",
+              "role": "INTERN", "status": "ACTIVE", "avatar_url": "https://..." }
+  },
+  "profile": null, "signup_ticket": null
+}
+```
+```json
+// Response 200 — chưa có tài khoản: client hiện form hồ sơ rồi gọi /auth/google/complete
+{
+  "status": "NEEDS_REGISTRATION",
+  "tokens": null,
+  "profile": { "email": "a@edu.gimasys.com", "full_name": "Nguyen Van A",
+               "avatar_url": "https://...", "assigned_role": "INTERN",
+               "needs_admin_approval": false },
+  "signup_ticket": "eyJhbGci..."
+}
+```
+Lỗi: `401` nếu ID token sai/hết hạn; `403` nếu email ngoài tên miền cho phép, email
+Google chưa xác thực, tài khoản `LOCKED`, hoặc Mentor chưa được duyệt (detail bắt đầu
+bằng `PENDING_APPROVAL`); `503` nếu server chưa cấu hình `GOOGLE_CLIENT_ID`.
+
+### POST /auth/google/complete — Tạo tài khoản (bước 2)
+Quyền: công khai, nhưng phải kèm `signup_ticket` do bước 1 cấp (hết hạn sau
+`SIGNUP_TICKET_EXPIRE_MINUTES`). **Email lấy từ vé, không lấy từ body** — nên không ai
+đăng ký hộ email người khác được. Vai trò cũng do server suy ra, client không gửi lên.
+```json
+// Request — university/major bắt buộc với INTERN, không cần với MENTOR
+{ "signup_ticket": "eyJhbGci...", "full_name": "Nguyen Van A", "phone": "0988123456",
+  "department": "Java Back-End", "university": "ĐH Công nghệ", "major": "CNTT",
+  "github_url": "https://github.com/a" }
+```
+Response `201` cùng shape với `/auth/google`: INTERN nhận `AUTHENTICATED` + tokens;
+MENTOR nhận `NEEDS_REGISTRATION` với `needs_admin_approval: true` và **không có token**
+(phải chờ ADMIN duyệt rồi đăng nhập lại).
+Lỗi: `400` vé hết hạn / thiếu trường bắt buộc theo vai trò; `403` email ngoài tên miền;
+`409` email đã có tài khoản.
+
+### POST /auth/login — Đăng nhập bằng mật khẩu (CHỈ tài khoản ADMIN)
+Quyền: công khai, nhưng **403 nếu tài khoản không phải ADMIN**. Intern/Mentor bắt buộc
+đi qua Google, nên đường mật khẩu không thể dùng để đi vòng qua xác thực Google.
+
+Tài khoản ADMIN được `scripts/ensure_admin.py` tạo/đồng bộ mỗi lần container khởi động
+theo `BOOTSTRAP_ADMIN_EMAIL` + `BOOTSTRAP_ADMIN_PASSWORD` (xem Dockerfile `CMD`). Đây là
+đường vào không phụ thuộc Google — bắt buộc phải có, vì Mentor mới cần ADMIN duyệt.
+Đổi mật khẩu admin = đổi biến môi trường rồi deploy lại.
 ```json
 // Request
 { "email": "a@example.com", "password": "matkhau123" }
@@ -210,6 +266,54 @@ Quyền: MENTOR. Đặt `status = ACTIVE`. Response `200`.
 
 ### DELETE /users/{id} — Xóa mềm (soft delete)
 Quyền: ADMIN. Đặt `deleted_at`, không xóa khỏi DB. Response `204`.
+
+---
+
+## 3b. Nhóm API: Yêu cầu chuyển vai trò (Intern ↔ Mentor)
+
+Vai trò được cấp theo tên miền email lúc đăng ký, nên đây là cách duy nhất để đổi
+vai trò về sau. Bảng `role_change_requests` có **unique index có điều kiện** trên
+`user_id WHERE status='PENDING'` → mỗi người tối đa một yêu cầu đang chờ.
+
+Luật:
+- **INTERN → MENTOR** (nâng quyền): tạo yêu cầu `PENDING`, chờ ADMIN duyệt. Người gửi
+  tự rút lại được khi chưa duyệt.
+- **MENTOR → INTERN** (hạ quyền): áp dụng **ngay**, không cần duyệt (`applied: true`),
+  vẫn ghi một dòng `APPROVED` để có vết lịch sử. Client phải gọi lại `GET /auth/me`.
+- **ADMIN**: không dùng cơ chế này (`400`).
+
+### GET /role-requests/me — Yêu cầu đang chờ của mình
+Quyền: INTERN/MENTOR. Trả `null` nếu không có.
+```json
+// Response 200
+{ "id": 5, "user_id": 12, "user_name": "Nguyen Van A", "user_email": "a@edu.gimasys.com",
+  "from_role": "INTERN", "to_role": "MENTOR", "status": "PENDING",
+  "created_at": "2026-08-10T02:00:00Z", "decided_at": null, "applied": false }
+```
+
+### POST /role-requests — Gửi yêu cầu
+Quyền: INTERN/MENTOR.
+```json
+// Request
+{ "to_role": "MENTOR" }
+```
+Response `201` (shape như trên). Lỗi: `400` nếu là ADMIN hoặc đã ở đúng vai trò đó;
+`409` nếu đang có yêu cầu chờ duyệt.
+
+### DELETE /role-requests/me — Rút lại yêu cầu
+Quyền: INTERN/MENTOR. Đặt `status = CANCELLED`. Response `204`, `404` nếu không có
+yêu cầu nào đang chờ.
+
+### GET /role-requests — Hàng đợi
+Quyền: ADMIN. Query `?status=PENDING&page=&size=`. Sắp xếp `id` tăng dần (ai gửi
+trước xếp trước); duyệt xong thì yêu cầu đó rời hàng đợi.
+
+### PATCH /role-requests/{id}/approve — Duyệt
+Quyền: ADMIN. Đổi `users.role` của người gửi sang `to_role` ngay. Response `200` với
+`applied: true`. Lỗi: `400` nếu yêu cầu đã xử lý, `404` nếu không tồn tại.
+
+### PATCH /role-requests/{id}/reject — Từ chối
+Quyền: ADMIN. `status = REJECTED`, vai trò giữ nguyên. Người dùng gửi lại được sau.
 
 ---
 
@@ -696,8 +800,10 @@ Response `200` (ghi nhận `reviewed_by`, `reviewer_name`, `reviewed_at`). Lỗi
 
 | Method | Endpoint | Quyền | Chức năng |
 |---|---|---|---|
-| POST | /auth/register | công khai | Đăng ký Intern |
-| POST | /auth/login | công khai | Đăng nhập |
+| POST | /auth/register | công khai | ⛔ đã tắt (luôn 403) |
+| POST | /auth/google | công khai | Đăng nhập bằng Google (bước 1) |
+| POST | /auth/google/complete | công khai + signup_ticket | Tạo tài khoản (bước 2) |
+| POST | /auth/login | công khai (chỉ ADMIN qua được) | Đăng nhập bằng mật khẩu |
 | POST | /auth/refresh | công khai | Làm mới access token |
 | POST | /auth/logout | INTERN/MENTOR | Đăng xuất |
 | GET | /auth/me | INTERN/MENTOR | Thông tin bản thân |
@@ -709,7 +815,14 @@ Response `200` (ghi nhận `reviewed_by`, `reviewer_name`, `reviewed_at`). Lỗi
 | PATCH | /users/{id}/profile | MENTOR | Cập nhật hồ sơ Intern |
 | PATCH | /users/{id}/lock | MENTOR | Khóa tài khoản |
 | PATCH | /users/{id}/unlock | MENTOR | Mở khóa |
+| PATCH | /users/{id}/approve | ADMIN | Duyệt tài khoản Mentor chờ duyệt |
 | DELETE | /users/{id} | ADMIN | Xóa mềm |
+| GET | /role-requests/me | INTERN/MENTOR | Yêu cầu chuyển vai trò của mình |
+| POST | /role-requests | INTERN/MENTOR | Gửi yêu cầu chuyển vai trò |
+| DELETE | /role-requests/me | INTERN/MENTOR | Rút lại yêu cầu chưa duyệt |
+| GET | /role-requests | ADMIN | Hàng đợi yêu cầu chuyển vai trò |
+| PATCH | /role-requests/{id}/approve | ADMIN | Duyệt (đổi vai trò ngay) |
+| PATCH | /role-requests/{id}/reject | ADMIN | Từ chối (giữ nguyên vai trò) |
 | GET | /groups | MENTOR | Danh sách nhóm |
 | POST | /groups | MENTOR | Tạo nhóm |
 | GET | /groups/{id} | MENTOR | Chi tiết nhóm + thành viên |

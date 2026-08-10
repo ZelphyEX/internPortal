@@ -7,7 +7,6 @@ from sqlalchemy import (
     BigInteger,
     Date,
     DateTime,
-    Enum as SAEnum,
     ForeignKey,
     Numeric,
     String,
@@ -17,7 +16,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 from app.db.mixins import TimestampMixin
-from app.models.enums import DEPARTMENT_ENUM, Department
+from app.models.enums import DEPARTMENT_ENUM, Department, pg_enum
 
 
 class Role(str, enum.Enum):
@@ -35,6 +34,12 @@ class UserStatus(str, enum.Enum):
     PENDING = "PENDING"
 
 
+# Một type object dùng chung -> chỉ một CREATE TYPE, dù có bảng khác cũng dùng
+# `user_role` (xem app/models/role_request.py).
+ROLE_ENUM = pg_enum(Role, "user_role")
+USER_STATUS_ENUM = pg_enum(UserStatus, "user_status")
+
+
 class User(TimestampMixin, Base):
     __tablename__ = "users"
 
@@ -42,15 +47,9 @@ class User(TimestampMixin, Base):
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[Role] = mapped_column(
-        SAEnum(Role, name="user_role", values_callable=lambda e: [m.value for m in e]),
-        default=Role.INTERN,
-        nullable=False,
-    )
+    role: Mapped[Role] = mapped_column(ROLE_ENUM, default=Role.INTERN, nullable=False)
     status: Mapped[UserStatus] = mapped_column(
-        SAEnum(UserStatus, name="user_status", values_callable=lambda e: [m.value for m in e]),
-        default=UserStatus.ACTIVE,
-        nullable=False,
+        USER_STATUS_ENUM, default=UserStatus.ACTIVE, nullable=False,
     )
     avatar_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     # Soft delete: set instead of physically removing the row.

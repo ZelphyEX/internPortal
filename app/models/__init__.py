@@ -12,6 +12,7 @@ from app.models.enums import Department
 from app.models.group import Group, GroupMember
 from app.models.project import Project, ProjectMember, ProjectStatus, ProjectTag
 from app.models.roadmap import LessonAttachment, Module, ModuleDocument, Roadmap
+from app.models.role_request import RoleChangeRequest, RoleRequestStatus
 from app.models.task import Task, TaskPriority, TaskStatus
 from app.models.user import Role, User, UserStatus
 
@@ -20,6 +21,8 @@ __all__ = [
     "Department",
     # user
     "User", "Role", "UserStatus",
+    # yêu cầu chuyển vai trò
+    "RoleChangeRequest", "RoleRequestStatus",
     # auth
     "RefreshToken",
     # group

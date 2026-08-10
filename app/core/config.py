@@ -29,7 +29,35 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
+    # --- Đăng nhập bằng Google (Google Identity Services) ---
+    # OAuth Consent Screen đang đặt là "External" nên Google cho phép mọi tài khoản
+    # Gmail bấm đăng nhập. Vì vậy việc giới hạn tên miền PHẢI làm ở backend:
+    # chỉ email thuộc các tên miền dưới đây mới đăng ký/đăng nhập được.
     GOOGLE_CLIENT_ID: str | None = None
+    ALLOWED_EMAIL_DOMAINS: str = "gimasys.com,edu.gimasys.com"
+    # Tên miền nào ra vai trò nào khi tạo tài khoản mới (xem auth_service.role_for_email).
+    MENTOR_EMAIL_DOMAIN: str = "gimasys.com"
+    INTERN_EMAIL_DOMAIN: str = "edu.gimasys.com"
+    # Vé đăng ký tạm (ký bằng SECRET_KEY) cấp sau khi Google xác thực xong nhưng
+    # tài khoản chưa tồn tại — người dùng phải điền hồ sơ trong khoảng thời gian này.
+    SIGNUP_TICKET_EXPIRE_MINUTES: int = 30
+    # CHỈ dùng cho dev khi chưa có GOOGLE_CLIENT_ID. Bật lên ở môi trường thật là
+    # lỗ hổng: ai cũng tự tạo credential giả để đăng nhập bằng email bất kỳ.
+    ALLOW_MOCK_GOOGLE_LOGIN: bool = False
+
+    # --- Tài khoản Quản trị viên hệ thống (bootstrap) ---
+    # `scripts/ensure_admin.py` chạy mỗi lần container khởi động và đồng bộ tài
+    # khoản này theo 3 biến dưới đây (xem Dockerfile CMD). Đây là tài khoản DUY
+    # NHẤT được đăng nhập bằng mật khẩu — mọi vai trò khác phải qua Google.
+    #
+    # IMPORTANT: mật khẩu admin do biến môi trường quyết định, KHÔNG phải do UI.
+    # Đổi mật khẩu trong phần Cài đặt sẽ bị ghi lại theo biến này ở lần deploy sau.
+    # Muốn đổi mật khẩu thật thì đổi BOOTSTRAP_ADMIN_PASSWORD rồi deploy lại.
+    BOOTSTRAP_ADMIN_EMAIL: str = "admin@gimasys.com"
+    BOOTSTRAP_ADMIN_NAME: str = "Quản trị viên Gimasys"
+    # Rỗng = không tạo/không đồng bộ gì (script bỏ qua, server vẫn khởi động).
+    BOOTSTRAP_ADMIN_PASSWORD: str = ""
 
     # --- Email verification toggle ---
     EMAIL_VERIFICATION_REQUIRED: bool = True  # Require admin approval / email verification
@@ -80,6 +108,15 @@ class Settings(BaseSettings):
     SMTP_USER: str | None = None
     SMTP_PASSWORD: str | None = None
     SMTP_FROM: str | None = None
+
+    @property
+    def allowed_email_domains(self) -> list[str]:
+        """ALLOWED_EMAIL_DOMAINS parsed thành danh sách tên miền chữ thường."""
+        return [
+            d.strip().lower().lstrip("@")
+            for d in self.ALLOWED_EMAIL_DOMAINS.split(",")
+            if d.strip()
+        ]
 
     @property
     def cors_origins(self) -> list[str]:

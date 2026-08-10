@@ -1,24 +1,10 @@
 """Auth request/response schemas."""
-import enum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
+from app.models.enums import Department
 from app.models.user import Role, UserStatus
-
-
-class RegisterRole(str, enum.Enum):
-    """Vai trò được phép tự đăng ký. KHÔNG cho đăng ký ADMIN."""
-    INTERN = "INTERN"
-    MENTOR = "MENTOR"
-
-
-class RegisterRequest(BaseModel):
-    full_name: str = Field(min_length=1, max_length=255)
-    email: EmailStr
-    password: str = Field(min_length=6, max_length=128)
-    # INTERN -> dùng được ngay (ACTIVE).
-    # MENTOR -> tạo ở trạng thái PENDING, phải chờ ADMIN duyệt mới đăng nhập được.
-    role: RegisterRole = RegisterRole.INTERN
 
 
 class LoginRequest(BaseModel):
@@ -36,6 +22,9 @@ class LoginUser(BaseModel):
 
     id: int
     full_name: str
+    # `str` (không phải EmailStr): giá trị đến từ DB và đã được kiểm lúc ghi.
+    # Kiểm lại ở chiều ra sẽ làm 500 cả response nếu có dòng dữ liệu cũ lạ.
+    email: str
     role: Role
     status: UserStatus = UserStatus.ACTIVE
     avatar_url: str | None = None
@@ -46,6 +35,49 @@ class TokenResponse(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
     user: LoginUser
+
+
+# --------------------------------------------------------------------------- #
+# Đăng nhập bằng Google (2 bước: xác thực -> nếu chưa có tài khoản thì điền hồ sơ)
+# --------------------------------------------------------------------------- #
+class GoogleProfile(BaseModel):
+    """Thông tin Google trả về, dùng để điền sẵn form đăng ký."""
+    email: EmailStr
+    full_name: str
+    avatar_url: str | None = None
+    #: Vai trò sẽ được cấp nếu đăng ký tiếp (suy ra từ tên miền email).
+    assigned_role: Role
+    #: True nếu tài khoản tạo ra phải chờ Admin duyệt (tên miền của Mentor).
+    needs_admin_approval: bool = False
+
+
+class GoogleAuthResponse(BaseModel):
+    """Kết quả `POST /auth/google`.
+
+      * `AUTHENTICATED`       -> `tokens` có giá trị, đăng nhập xong.
+      * `NEEDS_REGISTRATION`  -> `profile` + `signup_ticket` có giá trị; gọi tiếp
+                                 `POST /auth/google/complete` để tạo tài khoản.
+    """
+    status: Literal["AUTHENTICATED", "NEEDS_REGISTRATION"]
+    tokens: TokenResponse | None = None
+    profile: GoogleProfile | None = None
+    signup_ticket: str | None = None
+
+
+class GoogleSignupRequest(BaseModel):
+    """`POST /auth/google/complete` — hồ sơ bắt buộc khi tạo tài khoản mới.
+
+    Email KHÔNG nằm trong body: nó được lấy từ `signup_ticket` mà server đã ký
+    sau khi Google xác thực, nên không ai đăng ký hộ email người khác được.
+    """
+    signup_ticket: str
+    full_name: str = Field(min_length=2, max_length=255)
+    phone: str = Field(min_length=8, max_length=32)
+    department: Department
+    # Bắt buộc với Thực tập sinh, không cần với Mentor (service kiểm tra theo vai trò).
+    university: str | None = Field(default=None, max_length=255)
+    major: str | None = Field(default=None, max_length=255)
+    github_url: str | None = Field(default=None, max_length=512)
 
 
 class RefreshRequest(BaseModel):

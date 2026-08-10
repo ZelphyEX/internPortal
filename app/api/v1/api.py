@@ -15,6 +15,7 @@ from app.api.v1.routers import (
     learning,
     projects,
     roadmaps,
+    role_requests,
     tags,
     tasks,
     users,
@@ -31,6 +32,7 @@ api_router.include_router(roadmaps.router)
 # --- Dev B (Phase 2) ---
 # users, groups, assignments, learning, dashboard, comments
 api_router.include_router(users.router)
+api_router.include_router(role_requests.router)
 api_router.include_router(groups.router)
 api_router.include_router(assignments.router)
 api_router.include_router(learning.router)

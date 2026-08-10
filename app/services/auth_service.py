@@ -1,39 +1,31 @@
-"""Auth business logic (register / login / refresh / logout / password).
+"""Auth business logic (đăng nhập Google / refresh / logout / password).
 
 Routers stay thin — they call these functions. Security rules:
   * passwords are bcrypt-hashed (never stored raw)
   * refresh tokens are stored as SHA-256 hashes in `refresh_tokens`
   * changing the password revokes all of the user's refresh tokens
+
+Cách vào hệ thống DUY NHẤT của người dùng là **Đăng nhập bằng Google**
+(`POST /auth/google` → nếu chưa có tài khoản thì `POST /auth/google/complete`).
+OAuth Consent Screen đang là "External" nên Google không tự chặn tên miền —
+việc chặn nằm ở `_validate_email_domain` bên dưới.
 """
-import random
-import dns.resolver  # MX record lookup for email existence
+import secrets
 from datetime import datetime, timezone
 
+import jwt
 from fastapi import HTTPException, status
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from app.core import security
 from app.core.config import settings
 from app.models.auth import RefreshToken
 from app.models.user import Role, User, UserStatus
-from app.core import security
 
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
-
-def _has_mx_record(email: str) -> bool:
-    """Check if the email's domain has an MX record (basic existence check)."""
-    domain = email.split('@')[-1].lower()
-    try:
-        answers = dns.resolver.resolve(domain, 'MX')
-        return len(answers) > 0
-    except Exception:
-        return False
-
-
-# Global in-memory storage for verification codes: email -> 6-digit code string
-verification_codes: dict[str, str] = {}
 
 
 def _get_active_user_by_email(db: Session, email: str) -> User | None:
@@ -42,16 +34,46 @@ def _get_active_user_by_email(db: Session, email: str) -> User | None:
     )
 
 
+def _domain_of(email: str) -> str:
+    return email.lower().strip().rsplit("@", 1)[-1]
+
+
 def _validate_email_domain(email: str) -> None:
-    email_lower = email.lower().strip()
-    if email_lower in ("admin@example.com", "mentor@example.com", "intern@example.com"):
-        return
-    if email_lower.endswith("@gimasys.com") or email_lower.endswith("@edu.gimasys.com"):
+    """Chỉ cho phép email thuộc `settings.ALLOWED_EMAIL_DOMAINS`.
+
+    Đây là chốt duy nhất chặn tài khoản Gmail cá nhân: Consent Screen "External"
+    cho phép mọi người bấm đăng nhập, nên nếu bỏ hàm này thì ai cũng vào được.
+    """
+    allowed = settings.allowed_email_domains
+    if _domain_of(email) in allowed:
         return
     raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail="Chỉ chấp nhận email thuộc tên miền @gimasys.com hoặc @edu.gimasys.com.",
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=(
+            "Chỉ chấp nhận email nội bộ Gimasys ("
+            + ", ".join(f"@{d}" for d in allowed)
+            + "). Vui lòng đăng nhập bằng tài khoản Google của công ty hoặc nhà trường."
+        ),
     )
+
+
+def role_for_email(email: str) -> tuple[Role, UserStatus]:
+    """Vai trò + trạng thái khởi tạo cho tài khoản mới, suy ra từ tên miền email.
+
+      * `@gimasys.com`     -> MENTOR, PENDING (phải chờ Admin duyệt)
+      * `@edu.gimasys.com` -> INTERN, ACTIVE  (dùng được ngay)
+
+    Sau này đổi vai trò bằng yêu cầu chuyển vai trò (xem `role_request_service`),
+    không phải bằng cách tự khai lúc đăng ký.
+    """
+    domain = _domain_of(email)
+    if domain == settings.MENTOR_EMAIL_DOMAIN.strip().lower():
+        return Role.MENTOR, UserStatus.PENDING
+    if domain == settings.INTERN_EMAIL_DOMAIN.strip().lower():
+        return Role.INTERN, UserStatus.ACTIVE
+    # Tên miền nằm trong ALLOWED_EMAIL_DOMAINS nhưng chưa gán vai trò -> chọn mức
+    # quyền THẤP NHẤT. Cấu hình thiếu sót không được biến thành nâng quyền.
+    return Role.INTERN, UserStatus.ACTIVE
 
 
 #: Thông báo dùng chung khi tài khoản MENTOR chưa được duyệt. Frontend dựa vào
@@ -61,76 +83,51 @@ PENDING_APPROVAL_DETAIL = (
 )
 
 
-def register(
-    db: Session, *, full_name: str, email: str, password: str, role: Role = Role.INTERN,
-) -> User:
-    """Tự đăng ký. Quyết định vai trò dựa trên tên miền email.
-    Tất cả các tài khoản tự đăng ký mới sẽ có trạng thái PENDING và cần
-    phải xác thực email qua mã gửi về trước khi có thể hoạt động.
+def _free_soft_deleted_email(db: Session, email: str) -> None:
+    """Đổi tên email của bản ghi đã xoá mềm để giải phóng UNIQUE index.
+
+    Nhờ vậy một người từng bị xoá tài khoản vẫn đăng ký lại được bằng email cũ.
     """
-    _validate_email_domain(email)
-
-    # MX record check disabled – any address under allowed domains is accepted
-
-    email_lower = email.lower().strip()
-    if email_lower == "admin@example.com":
-        resolved_role = Role.ADMIN
-        resolved_status = UserStatus.ACTIVE
-    elif email_lower == "mentor@example.com":
-        resolved_role = Role.MENTOR
-        resolved_status = UserStatus.ACTIVE
-    elif email_lower == "intern@example.com":
-        resolved_role = Role.INTERN
-        resolved_status = UserStatus.ACTIVE
-    elif email_lower.endswith("@gimasys.com"):
-        resolved_role = Role.MENTOR
-        resolved_status = UserStatus.PENDING
-    elif email_lower.endswith("@edu.gimasys.com"):
-        resolved_role = Role.INTERN
-        resolved_status = UserStatus.ACTIVE
-    else:
-        resolved_role = role
-        resolved_status = UserStatus.PENDING
-
-
-    # If there is a soft-deleted user with the same email, rename it to free up the UNIQUE constraint
-    soft_deleted_user = db.scalar(
+    soft_deleted = db.scalar(
         select(User).where(User.email == email, User.deleted_at.is_not(None))
     )
-    if soft_deleted_user:
-        now_dt = _now()
-        timestamp = int(now_dt.timestamp())
-        soft_deleted_user.email = f"{soft_deleted_user.email}_deleted_{timestamp}"
-        db.add(soft_deleted_user)
+    if soft_deleted is not None:
+        soft_deleted.email = f"{soft_deleted.email}_deleted_{int(_now().timestamp())}"
+        db.add(soft_deleted)
         db.commit()
 
-    # Conflict check includes active/un-deleted rows
-    if db.scalar(select(User.id).where(User.email == email, User.deleted_at.is_(None))) is not None:
+
+def _assert_email_free(db: Session, email: str) -> None:
+    if db.scalar(
+        select(User.id).where(User.email == email, User.deleted_at.is_(None))
+    ) is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Email already registered",
         )
-    user = User(
-        full_name=full_name,
-        email=email,
-        password_hash=security.hash_password(password),
-        role=resolved_role,
-        status=resolved_status,
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-
-    return user
 
 
 def authenticate(db: Session, email: str, password: str) -> User:
+    """Đăng nhập bằng mật khẩu — CHỈ dành cho tài khoản Quản trị viên.
+
+    Intern/Mentor bắt buộc đi qua Google: tài khoản của họ sinh ra từ luồng Google
+    và mang mật khẩu ngẫu nhiên không ai biết. Chặn ở đây để đường mật khẩu không
+    trở thành lối đi vòng qua xác thực Google cho các vai trò khác.
+    """
     _validate_email_domain(email)
     user = _get_active_user_by_email(db, email)
     # Same 401 for unknown email and wrong password (no user enumeration).
     if user is None or not security.verify_password(password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
+            detail="Sai email hoặc mật khẩu.",
+        )
+    if user.role != Role.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Ô đăng nhập mật khẩu chỉ dành cho tài khoản Quản trị viên. "
+                'Vui lòng dùng nút "Đăng nhập bằng Google".'
+            ),
         )
     if user.status == UserStatus.PENDING:
         raise HTTPException(
@@ -138,103 +135,171 @@ def authenticate(db: Session, email: str, password: str) -> User:
         )
     if user.status == UserStatus.LOCKED:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Account is locked",
+            status_code=status.HTTP_403_FORBIDDEN, detail="Tài khoản này đã bị khóa.",
         )
     return user
 
 
-def google_authenticate(db: Session, credential: str) -> User:
-    """Xác thực Google ID Token, tự đăng ký nếu là user mới (vai trò dựa trên email domain).
-    Hỗ trợ mock token ở môi trường dev nếu chưa cấu hình GOOGLE_CLIENT_ID.
+# --------------------------------------------------------------------------- #
+# Đăng nhập bằng Google (đường vào duy nhất của người dùng)
+# --------------------------------------------------------------------------- #
+def _mock_google_identity(credential: str) -> dict:
+    """Chỉ dùng cho dev: `mock_google_token_<email>_<Ho-Ten>`."""
+    parts = credential.split("_")
+    email = parts[3] if len(parts) >= 4 else "demo@edu.gimasys.com"
+    name = parts[4].replace("-", " ") if len(parts) > 4 else "Demo Google User"
+    return {"email": email.lower().strip(), "full_name": name, "avatar_url": None}
+
+
+def _verify_google_credential(credential: str) -> dict:
+    """Xác thực Google ID token, trả về {email, full_name, avatar_url}.
+
+    Không bao giờ tin dữ liệu client gửi lên: email lấy từ token đã được Google
+    ký, không lấy từ body request.
     """
-    try:
-        from app.core.config import settings
-        from google.oauth2 import id_token
-        from google.auth.transport import requests as google_requests
-
-        email: str = ""
-        name: str = ""
-        picture: str | None = None
-
-        # Development Mock Fallback
-        if not settings.GOOGLE_CLIENT_ID or credential.startswith("mock_google_token_"):
-            token_parts = credential.split("_")
-            if len(token_parts) >= 4:
-                email = token_parts[3]
-                name = token_parts[4] if len(token_parts) > 4 else "Google User"
-                name = name.replace("-", " ")
-            else:
-                email = "demo.google@gimasys.com"
-                name = "Demo Google User"
-            print(f"[MOCK GOOGLE AUTH] Verified mock token for email={email}, name={name}")
-        else:
-            client_id = settings.GOOGLE_CLIENT_ID
-            if client_id:
-                client_id = client_id.replace("https://", "").replace("http://", "").strip("/")
-            idinfo = id_token.verify_oauth2_token(
-                credential, google_requests.Request(), client_id
-            )
-            email = idinfo["email"]
-            name = idinfo.get("name", "Google User")
-            picture = idinfo.get("picture")
-
-        email_lower = email.lower().strip()
-        _validate_email_domain(email_lower)
-
-        user = db.scalar(
-            select(User).where(User.email == email_lower, User.deleted_at.is_(None))
+    if not settings.GOOGLE_CLIENT_ID:
+        # Trước đây nhánh này tự nhận mọi "mock token" — nghĩa là khi thiếu biến
+        # môi trường thì bất kỳ ai cũng đăng nhập được bằng email bất kỳ (kể cả
+        # tài khoản Admin). Giờ phải bật cờ ALLOW_MOCK_GOOGLE_LOGIN mới cho phép.
+        if settings.ALLOW_MOCK_GOOGLE_LOGIN:
+            return _mock_google_identity(credential)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Máy chủ chưa cấu hình GOOGLE_CLIENT_ID nên chưa xác thực được "
+                "tài khoản Google. Vui lòng liên hệ bộ phận kỹ thuật."
+            ),
         )
 
-        if user is None:
-            soft_deleted = db.scalar(
-                select(User).where(User.email == email_lower, User.deleted_at.is_not(None))
-            )
-            if soft_deleted:
-                db.delete(soft_deleted)
-                db.commit()
+    from google.auth.transport import requests as google_requests
+    from google.oauth2 import id_token
 
-            if email_lower.endswith("@gimasys.com"):
-                resolved_role = Role.MENTOR
-            elif email_lower.endswith("@edu.gimasys.com"):
-                resolved_role = Role.INTERN
-            else:
-                resolved_role = Role.INTERN
-
-            random_pw = security.hash_password(str(random.randint(10000000, 99999999)))
-            user = User(
-                full_name=name,
-                email=email_lower,
-                password_hash=random_pw,
-                role=resolved_role,
-                status=UserStatus.ACTIVE,
-                avatar_url=picture,
-            )
-            db.add(user)
-            db.commit()
-            db.refresh(user)
-            print(f"[GOOGLE AUTH] Created new user: {email_lower} (role={resolved_role.value})")
-        else:
-            if user.status == UserStatus.PENDING:
-                user.status = UserStatus.ACTIVE
-                db.add(user)
-                db.commit()
-                db.refresh(user)
-            elif user.status == UserStatus.LOCKED:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Tài khoản này đã bị khóa.",
-                )
-
-        return user
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        print(f"[GOOGLE AUTH ERROR] {traceback.format_exc()}")
+    try:
+        idinfo = id_token.verify_oauth2_token(
+            credential, google_requests.Request(), settings.GOOGLE_CLIENT_ID.strip(),
+        )
+    except Exception:
+        # Không đẩy chi tiết lỗi thư viện ra ngoài (tránh lộ cấu hình nội bộ).
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Xác thực Google ID token thất bại ({type(e).__name__}): {str(e)}",
+            detail="Xác thực Google thất bại. Vui lòng thử đăng nhập lại.",
         )
+
+    email = str(idinfo.get("email") or "").lower().strip()
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Tài khoản Google không cung cấp địa chỉ email.",
+        )
+    if idinfo.get("email_verified") is False:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email của tài khoản Google này chưa được xác thực.",
+        )
+    return {
+        "email": email,
+        "full_name": idinfo.get("name") or email.split("@")[0],
+        "avatar_url": idinfo.get("picture"),
+    }
+
+
+#: Kết quả của `google_sign_in`.
+GOOGLE_AUTHENTICATED = "AUTHENTICATED"
+GOOGLE_NEEDS_REGISTRATION = "NEEDS_REGISTRATION"
+
+
+def google_sign_in(db: Session, credential: str) -> tuple[str, User | None, dict]:
+    """Xác thực Google rồi tra tài khoản.
+
+    Trả về `(GOOGLE_AUTHENTICATED, user, identity)` nếu đã có tài khoản, hoặc
+    `(GOOGLE_NEEDS_REGISTRATION, None, identity)` nếu chưa — khi đó router cấp
+    một "vé đăng ký" để frontend hiện form nhập hồ sơ.
+
+    Cố tình KHÔNG tự tạo tài khoản ở đây: hồ sơ (đơn vị, trường, SĐT...) phải do
+    người dùng nhập, và tài khoản Mentor còn cần Admin duyệt.
+    """
+    identity = _verify_google_credential(credential)
+    _validate_email_domain(identity["email"])
+
+    user = _get_active_user_by_email(db, identity["email"])
+    if user is None:
+        return GOOGLE_NEEDS_REGISTRATION, None, identity
+
+    # Mentor chưa được duyệt thì vẫn phải chờ. Trước đây nhánh này tự đặt ACTIVE,
+    # tức là chỉ cần đăng nhập bằng Google là bỏ qua được bước Admin duyệt.
+    if user.status == UserStatus.PENDING:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=PENDING_APPROVAL_DETAIL,
+        )
+    if user.status == UserStatus.LOCKED:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Tài khoản này đã bị khóa.",
+        )
+
+    # Lần đầu chuyển sang đăng nhập Google: lấy luôn ảnh đại diện nếu còn trống.
+    if not user.avatar_url and identity.get("avatar_url"):
+        user.avatar_url = identity["avatar_url"]
+        db.commit()
+        db.refresh(user)
+    return GOOGLE_AUTHENTICATED, user, identity
+
+
+def complete_google_signup(
+    db: Session, *, signup_ticket: str, full_name: str, profile: dict,
+) -> User:
+    """Tạo tài khoản sau khi người dùng điền hồ sơ (bước 2 của đăng nhập Google).
+
+    Email lấy từ vé đăng ký đã ký, KHÔNG lấy từ body — nên không ai đăng ký được
+    bằng email của người khác. Vai trò suy ra từ tên miền (`role_for_email`).
+    """
+    try:
+        payload = security.decode_signup_ticket(signup_ticket)
+    except jwt.PyJWTError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Phiên đăng ký đã hết hạn. Vui lòng bấm Đăng nhập bằng Google lại.",
+        )
+
+    email = str(payload.get("sub") or "").lower().strip()
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Vé đăng ký không hợp lệ.",
+        )
+    _validate_email_domain(email)
+    _free_soft_deleted_email(db, email)
+    _assert_email_free(db, email)
+
+    role, initial_status = role_for_email(email)
+    # Thực tập sinh bắt buộc khai trường + ngành (Mentor thì không cần). Kiểm tra
+    # ở server vì vai trò do tên miền quyết định, frontend không được tự khai.
+    if role == Role.INTERN:
+        missing = [
+            label
+            for label, value in (("Trường", profile.get("university")), ("Ngành", profile.get("major")))
+            if not (value or "").strip()
+        ]
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Thực tập sinh phải điền: {', '.join(missing)}.",
+            )
+
+    user = User(
+        full_name=full_name.strip(),
+        email=email,
+        # Đăng nhập bằng Google nên mật khẩu không dùng tới. Vẫn phải có giá trị
+        # (cột NOT NULL) — đặt chuỗi ngẫu nhiên đủ dài để không ai đoán/dò được.
+        password_hash=security.hash_password(secrets.token_urlsafe(32)),
+        role=role,
+        status=initial_status,
+        avatar_url=payload.get("picture"),
+    )
+    for key, value in profile.items():
+        setattr(user, key, value)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
 
 
 def issue_tokens(db: Session, user: User) -> tuple[str, str]:
