@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.auth import RefreshToken
 from app.models.user import Role, User, UserStatus
+from app.core import security
 
 
 def _now() -> datetime:
