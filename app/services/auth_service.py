@@ -167,8 +167,11 @@ def google_authenticate(db: Session, credential: str) -> User:
         print(f"[MOCK GOOGLE AUTH] Verified mock token for email={email}, name={name}")
     else:
         try:
+            client_id = settings.GOOGLE_CLIENT_ID
+            if client_id:
+                client_id = client_id.replace("https://", "").replace("http://", "").strip("/")
             idinfo = id_token.verify_oauth2_token(
-                credential, google_requests.Request(), settings.GOOGLE_CLIENT_ID
+                credential, google_requests.Request(), client_id
             )
             email = idinfo["email"]
             name = idinfo.get("name", "Google User")
