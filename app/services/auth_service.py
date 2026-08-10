@@ -176,10 +176,12 @@ def google_authenticate(db: Session, credential: str) -> User:
             email = idinfo["email"]
             name = idinfo.get("name", "Google User")
             picture = idinfo.get("picture")
-        except ValueError as e:
+        except Exception as e:
+            import traceback
+            print(f"[GOOGLE AUTH ERROR] {traceback.format_exc()}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"Xác thực Google ID token thất bại: {str(e)}",
+                detail=f"Xác thực Google ID token thất bại ({type(e).__name__}): {str(e)}",
             )
 
     email_lower = email.lower().strip()
