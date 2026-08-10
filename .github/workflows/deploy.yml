@@ -31,6 +31,7 @@ jobs:
           [ -z "${{ secrets.DATABASE_URL }}" ] && missing+=("secrets.DATABASE_URL")
           [ -z "${{ secrets.JWT_SECRET }}" ] && missing+=("secrets.JWT_SECRET")
           [ -z "${{ vars.GCS_BUCKET }}" ] && missing+=("vars.GCS_BUCKET")
+          [ -z "${{ vars.GOOGLE_CLIENT_ID }}" ] && missing+=("vars.GOOGLE_CLIENT_ID")
           if [ "${#missing[@]}" -gt 0 ]; then
             echo "::error::Missing required GitHub secrets/variables: ${missing[*]}. Set them in Settings > Secrets and variables > Actions."
             exit 1
@@ -83,3 +84,4 @@ jobs:
             STORAGE_BACKEND=gcs
             GCS_BUCKET=${{ vars.GCS_BUCKET }}
             GCS_PROJECT_ID=${{ vars.GCP_PROJECT_ID }}
+            GOOGLE_CLIENT_ID=${{ vars.GOOGLE_CLIENT_ID }}
