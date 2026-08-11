@@ -41,12 +41,13 @@ def register_disabled() -> None:
 
 
 def _token_response(db: Session, user: User) -> TokenResponse:
-    access, refresh = auth_service.issue_tokens(db, user)
+    access, refresh, session_expires_at = auth_service.issue_tokens(db, user)
     return TokenResponse(
         access_token=access,
         refresh_token=refresh,
         token_type="bearer",
         user=LoginUser.model_validate(user),
+        session_expires_at=session_expires_at,
     )
 
 

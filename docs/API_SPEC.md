@@ -73,6 +73,12 @@ Ràng buộc: `page >= 1`, `size` trong khoảng `1..100` (**mặc định 20**)
 > Vai trò suy ra từ tên miền: `@edu.gimasys.com` → INTERN (`ACTIVE`),
 > `@gimasys.com` → MENTOR (`PENDING`, chờ ADMIN duyệt). Muốn đổi vai trò về sau thì
 > dùng **yêu cầu chuyển vai trò** (mục 3b).
+>
+> **Tuổi thọ phiên: `REFRESH_TOKEN_EXPIRE_DAYS` (mặc định 1 ngày).** Mọi response
+> cấp token đều kèm `session_expires_at` (ISO 8601 UTC) — hạn **tuyệt đối** tính từ
+> lúc đăng nhập. `/auth/refresh` chỉ cấp access token mới và **không** đẩy mốc này ra
+> xa, nên hết ngày là phải đăng nhập lại dù đang thao tác liên tục. Client nên tự
+> đăng xuất khi tới mốc đó thay vì đợi 401.
 
 ### POST /auth/register — ⛔ ĐÃ TẮT
 Quyền: công khai. Luôn trả `403`.
@@ -92,6 +98,7 @@ Quyền: công khai.
   "status": "AUTHENTICATED",
   "tokens": {
     "access_token": "eyJhbGci...", "refresh_token": "d9f3...", "token_type": "bearer",
+    "session_expires_at": "2026-08-11T02:00:00Z",
     "user": { "id": 12, "full_name": "Nguyen Van A", "email": "a@edu.gimasys.com",
               "role": "INTERN", "status": "ACTIVE", "avatar_url": "https://..." }
   },
@@ -139,7 +146,7 @@ theo `BOOTSTRAP_ADMIN_EMAIL` + `BOOTSTRAP_ADMIN_PASSWORD` (xem Dockerfile `CMD`)
 Đổi mật khẩu admin = đổi biến môi trường rồi deploy lại.
 ```json
 // Request
-{ "email": "a@example.com", "password": "matkhau123" }
+{ "email": "admin@gimasys.com", "password": "matkhau123" }
 ```
 ```json
 // Response 200
@@ -147,13 +154,17 @@ theo `BOOTSTRAP_ADMIN_EMAIL` + `BOOTSTRAP_ADMIN_PASSWORD` (xem Dockerfile `CMD`)
   "access_token": "eyJhbGci...",
   "refresh_token": "d9f3...",
   "token_type": "bearer",
-  "user": { "id": 12, "full_name": "Nguyen Van A", "role": "INTERN", "avatar_url": null }
+  "session_expires_at": "2026-08-11T02:00:00Z",
+  "user": { "id": 1, "full_name": "Quản trị viên Gimasys", "email": "admin@gimasys.com",
+            "role": "ADMIN", "status": "ACTIVE", "avatar_url": null }
 }
 ```
-Lỗi: `401` nếu sai thông tin; `403` nếu tài khoản đang `LOCKED`.
+Lỗi: `401` sai email/mật khẩu; `403` nếu không phải ADMIN, tài khoản `LOCKED`, hoặc
+email ngoài tên miền cho phép.
 
 ### POST /auth/refresh — Làm mới access token
-Quyền: công khai (dùng refresh token).
+Quyền: công khai (dùng refresh token). Chỉ cấp access token mới; **không** gia hạn
+phiên — refresh token hết hạn (`session_expires_at`) là phải đăng nhập lại.
 ```json
 // Request
 { "refresh_token": "d9f3..." }

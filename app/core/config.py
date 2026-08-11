@@ -28,7 +28,11 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "CHANGE_ME__dev_only_secret__override_in_env"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    # ĐÂY LÀ TUỔI THỌ CỦA MỘT PHIÊN ĐĂNG NHẬP.
+    # `/auth/refresh` chỉ cấp access token mới, KHÔNG gia hạn refresh token — nên
+    # đây là hạn tuyệt đối tính từ lúc đăng nhập, không phải hạn trượt theo hoạt
+    # động. Hết hạn là phải đăng nhập lại, dù đang thao tác liên tục.
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 1
 
     # --- Đăng nhập bằng Google (Google Identity Services) ---
     # OAuth Consent Screen đang đặt là "External" nên Google cho phép mọi tài khoản

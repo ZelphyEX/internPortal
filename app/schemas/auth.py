@@ -1,4 +1,5 @@
 """Auth request/response schemas."""
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -35,6 +36,10 @@ class TokenResponse(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
     user: LoginUser
+    #: Hạn TUYỆT ĐỐI của phiên (ISO 8601 UTC). `/auth/refresh` không gia hạn mốc
+    #: này, nên tới lúc đó là phải đăng nhập lại dù đang thao tác liên tục.
+    #: Client dùng nó để tự đăng xuất, không đợi request lỗi mới biết.
+    session_expires_at: datetime
 
 
 # --------------------------------------------------------------------------- #

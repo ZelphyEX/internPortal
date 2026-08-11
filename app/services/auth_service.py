@@ -302,17 +302,23 @@ def complete_google_signup(
     return user
 
 
-def issue_tokens(db: Session, user: User) -> tuple[str, str]:
-    """Return (access_token, raw_refresh_token). Stores only the refresh hash."""
+def issue_tokens(db: Session, user: User) -> tuple[str, str, datetime]:
+    """Return (access_token, raw_refresh_token, session_expires_at).
+
+    Chỉ lưu HASH của refresh token. `session_expires_at` là hạn tuyệt đối của phiên
+    (`REFRESH_TOKEN_EXPIRE_DAYS`) — trả về cho client để nó tự đăng xuất đúng lúc
+    thay vì đợi một request thất bại mới biết phiên đã chết.
+    """
     access = security.create_access_token(subject=user.id, role=user.role.value)
     raw_refresh = security.create_refresh_token()
+    expires_at = security.refresh_token_expires_at()
     db.add(RefreshToken(
         user_id=user.id,
         token_hash=security.hash_refresh_token(raw_refresh),
-        expires_at=security.refresh_token_expires_at(),
+        expires_at=expires_at,
     ))
     db.commit()
-    return access, raw_refresh
+    return access, raw_refresh, expires_at
 
 
 def refresh_access_token(db: Session, raw_refresh: str) -> str:
