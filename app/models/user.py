@@ -1,13 +1,11 @@
 """User model + role/status enums."""
 import enum
-from datetime import date, datetime
+from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
     BigInteger,
-    Date,
     DateTime,
-    ForeignKey,
     Numeric,
     String,
     Text,
@@ -60,15 +58,9 @@ class User(TimestampMixin, Base):
     # All nullable: only meaningful for role=INTERN, and filled in by a
     # MENTOR/ADMIN via PATCH /users/{id}/profile.
     # ----------------------------------------------------------------------- #
+    # Khối "Thông tin Hành chính & Đào tạo" (phone, university, mentor_id,
+    # start_date, end_date) đã bị bỏ khỏi bảng — xem migration d5c8a2e64f19.
     department: Mapped[Department | None] = mapped_column(DEPARTMENT_ENUM, nullable=True)
-    # The mentor in charge of this intern (self-referencing FK).
-    mentor_id: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("users.id"), index=True, nullable=True,
-    )
-    phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    university: Mapped[str | None] = mapped_column(String(255), nullable=True)
     major: Mapped[str | None] = mapped_column(String(255), nullable=True)
     bio: Mapped[str | None] = mapped_column(Text, nullable=True)
     github_url: Mapped[str | None] = mapped_column(String(512), nullable=True)

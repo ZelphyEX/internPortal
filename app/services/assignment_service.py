@@ -98,6 +98,98 @@ def assign_group(db: Session, roadmap_id: int, group_id: int) -> tuple[int, int]
     return len(to_create), len(member_ids) - len(to_create)
 
 
+# --------------------------------------------------------------------------- #
+# Gán theo nhóm = LUẬT THƯỜNG TRỰC, không phải một lần chép
+#
+# `source_group_id` ghi lại "người này có lộ trình vì thuộc nhóm X". Nhờ đó:
+#   * ai vào nhóm SAU vẫn được nhận lộ trình của nhóm (`sync_new_group_members`);
+#   * rời nhóm thì chỉ thu hồi đúng phần đến từ nhóm, và chỉ khi chưa học gì
+#     (`revoke_for_leaving_member`).
+# --------------------------------------------------------------------------- #
+def roadmap_ids_for_group(db: Session, group_id: int) -> set[int]:
+    """Các lộ trình đang được gán cho nhóm này."""
+    return set(
+        db.scalars(
+            select(RoadmapAssignment.roadmap_id)
+            .where(RoadmapAssignment.source_group_id == group_id)
+            .distinct()
+        ).all()
+    )
+
+
+def sync_new_group_members(db: Session, group_id: int, user_ids: set[int]) -> int:
+    """Gán mọi lộ trình của nhóm cho những người vừa được thêm vào nhóm.
+
+    Đây là chỗ vá lỗi cũ: trước đây `assign_group` chỉ gán cho thành viên CÓ MẶT
+    lúc bấm gán, nên người vào nhóm sau không hề nhận được lộ trình nào.
+
+    Trả về số lượt gán mới. Không commit — người gọi commit chung một transaction.
+    """
+    if not user_ids:
+        return 0
+    roadmap_ids = roadmap_ids_for_group(db, group_id)
+    if not roadmap_ids:
+        return 0
+
+    # Bỏ qua ai đã có lộ trình đó rồi (dù được gán lẻ hay qua nhóm khác).
+    existing = {
+        (rid, uid)
+        for rid, uid in db.execute(
+            select(RoadmapAssignment.roadmap_id, RoadmapAssignment.user_id).where(
+                RoadmapAssignment.roadmap_id.in_(roadmap_ids),
+                RoadmapAssignment.user_id.in_(user_ids),
+            )
+        ).all()
+    }
+    created = [
+        RoadmapAssignment(roadmap_id=rid, user_id=uid, source_group_id=group_id)
+        for rid in roadmap_ids
+        for uid in user_ids
+        if (rid, uid) not in existing
+    ]
+    if created:
+        db.add_all(created)
+    return len(created)
+
+
+def revoke_for_leaving_member(db: Session, group_id: int, user_id: int) -> tuple[int, int]:
+    """Xử lý lộ trình khi một người rời nhóm. Trả về (đã gỡ, giữ lại vì đã học).
+
+    Luật: chỉ đụng tới lộ trình ĐẾN TỪ nhóm này. Nếu người đó đã hoàn thành bài
+    nào trong lộ trình thì KHÔNG gỡ — thay vào đó chuyển thành gán cá nhân
+    (`source_group_id = NULL`). Rời nhóm không được phép xoá công sức đã học.
+    Lộ trình được gán lẻ từ đầu thì không liên quan, giữ nguyên.
+    """
+    from_group = list(
+        db.scalars(
+            select(RoadmapAssignment).where(
+                RoadmapAssignment.source_group_id == group_id,
+                RoadmapAssignment.user_id == user_id,
+            )
+        ).all()
+    )
+    if not from_group:
+        return 0, 0
+
+    started = set(
+        db.scalars(
+            select(LessonProgress.assignment_id).where(
+                LessonProgress.assignment_id.in_([a.id for a in from_group]),
+                LessonProgress.completed.is_(True),
+            )
+        ).all()
+    )
+    removed = kept = 0
+    for a in from_group:
+        if a.id in started:
+            a.source_group_id = None  # giữ lại, chuyển thành gán cá nhân
+            kept += 1
+        else:
+            db.delete(a)
+            removed += 1
+    return removed, kept
+
+
 def get_assignment(db: Session, assignment_id: int) -> RoadmapAssignment:
     a = db.get(RoadmapAssignment, assignment_id)
     if a is None:

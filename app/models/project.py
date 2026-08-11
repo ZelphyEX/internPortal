@@ -73,6 +73,13 @@ class ProjectMember(Base):
     user_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("users.id"), index=True, nullable=False,
     )
+    # Nhóm đã kéo người này vào dự án (NULL = được thêm lẻ).
+    # Nhờ cột này, gán một NHÓM vào dự án trở thành "luật thường trực": ai vào nhóm
+    # sau cũng tự được thêm, và khi rời nhóm chỉ gỡ đúng những người vào bằng nhóm.
+    # Đối xứng với `roadmap_assignments.source_group_id`.
+    source_group_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("groups.id"), index=True, nullable=True,
+    )
     joined_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False,
     )

@@ -14,11 +14,13 @@ from app.core.pagination import (
 from app.schemas.common import Page
 from app.schemas.group import (
     AddMembersRequest,
+    AddMembersResult,
     GroupCreate,
     GroupDetailOut,
     GroupMemberOut,
     GroupOut,
     GroupUpdate,
+    RemoveMemberResult,
 )
 from app.services import group_service as svc
 
@@ -73,18 +75,26 @@ def delete_group(group_id: int, db: DbSession, current_user: MentorRequired) -> 
     svc.delete_group(db, svc.get_group(db, group_id))
 
 
-@router.post("/{group_id}/members", response_model=list[GroupMemberOut])
+@router.post("/{group_id}/members", response_model=AddMembersResult)
 def add_members(
     group_id: int, payload: AddMembersRequest, db: DbSession, current_user: MentorRequired,
-) -> list[GroupMemberOut]:
-    """Add many interns (bulk, one transaction). Skips duplicates / unknown ids.
-    Returns the group's current member list."""
-    members = svc.add_members(db, group_id, payload.user_ids)
-    return [GroupMemberOut.model_validate(m) for m in members]
+) -> AddMembersResult:
+    """Thêm nhiều người vào nhóm (bulk, một transaction). Bỏ qua trùng / id lạ.
+
+    Người mới **tự động kế thừa** mọi lộ trình và dự án đang gán cho nhóm — response
+    trả về `inherited_roadmaps` / `inherited_projects` để client báo lại cho Mentor.
+    """
+    return svc.add_members(db, group_id, payload.user_ids)
 
 
-@router.delete("/{group_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{group_id}/members/{user_id}", response_model=RemoveMemberResult)
 def remove_member(
     group_id: int, user_id: int, db: DbSession, current_user: MentorRequired,
-) -> None:
-    svc.remove_member(db, group_id, user_id)
+) -> RemoveMemberResult:
+    """Gỡ một người khỏi nhóm.
+
+    Chỉ thu hồi lộ trình/dự án người đó có **vì thuộc nhóm này** và **chưa động
+    vào**. Phần đã có tiến độ (đã học bài / đang có task) được giữ lại dưới dạng gán
+    cá nhân — xem `kept_roadmaps` / `kept_projects`.
+    """
+    return svc.remove_member(db, group_id, user_id)

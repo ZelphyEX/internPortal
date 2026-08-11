@@ -10,7 +10,13 @@ from sqlalchemy.orm import Session
 
 from app.models.group import Group, GroupMember
 from app.models.user import User
-from app.schemas.group import GroupCreate, GroupOut, GroupUpdate
+from app.schemas.group import (
+    AddMembersResult,
+    GroupCreate,
+    GroupOut,
+    GroupUpdate,
+    RemoveMemberResult,
+)
 
 _IN_USE = "Group is referenced by roadmap assignments"
 
@@ -95,9 +101,17 @@ def delete_group(db: Session, g: Group) -> None:
 
 
 # ---------- membership ----------
-def add_members(db: Session, group_id: int, user_ids: list[int]) -> list[User]:
-    """Add many interns at once. Skips unknown/deleted users and anyone already
-    in this group. Returns the group's current member list."""
+def add_members(db: Session, group_id: int, user_ids: list[int]) -> AddMembersResult:
+    """Thêm nhiều người vào nhóm. Bỏ qua user không tồn tại/đã xoá và người đã ở
+    trong nhóm.
+
+    QUAN TRỌNG — người mới **kế thừa ngay** mọi lộ trình và dự án đang gán cho nhóm.
+    Trước đây không có bước này: gán lộ trình cho nhóm chỉ chép cho những ai CÓ MẶT
+    lúc bấm gán, nên ai vào nhóm sau sẽ không thấy lộ trình nào cả.
+
+    Cả việc thêm thành viên lẫn kế thừa nằm trong MỘT transaction: hoặc vào nhóm và
+    nhận đủ lộ trình/dự án, hoặc không có gì (không để trạng thái nửa vời).
+    """
     get_group(db, group_id)  # 404 if group missing
     wanted = set(user_ids)
     # Only existing, non-deleted users are eligible.
@@ -115,13 +129,33 @@ def add_members(db: Session, group_id: int, user_ids: list[int]) -> list[User]:
         ).all()
     )
     to_add = valid - already
+    roadmaps = projects = 0
     if to_add:
         db.add_all(GroupMember(group_id=group_id, user_id=uid) for uid in to_add)
+        # Import tại chỗ: assignment_service/project_service không import ngược lại
+        # group_service, nhưng để ở đây cho rõ đây là hiệu ứng phụ của việc vào nhóm.
+        from app.services import assignment_service, project_service
+
+        roadmaps = assignment_service.sync_new_group_members(db, group_id, to_add)
+        projects = project_service.sync_new_group_members(db, group_id, to_add)
         db.commit()
-    return list_members(db, group_id)
+    return AddMembersResult(
+        members=list_members(db, group_id),
+        added_count=len(to_add),
+        skipped_existing=len(already),
+        inherited_roadmaps=roadmaps,
+        inherited_projects=projects,
+    )
 
 
-def remove_member(db: Session, group_id: int, user_id: int) -> None:
+def remove_member(db: Session, group_id: int, user_id: int) -> RemoveMemberResult:
+    """Gỡ một người khỏi nhóm.
+
+    Chỉ thu hồi những lộ trình/dự án người đó có **vì thuộc nhóm này**, và chỉ khi
+    họ chưa động vào (chưa hoàn thành bài học nào / chưa được giao task nào). Phần
+    đã có tiến độ được giữ lại và chuyển thành gán cá nhân — rời nhóm không được
+    phép xoá công sức đã bỏ ra. Gán lẻ từ đầu thì không đụng tới.
+    """
     get_group(db, group_id)  # 404 if group missing
     gm = db.scalar(
         select(GroupMember).where(
@@ -132,5 +166,19 @@ def remove_member(db: Session, group_id: int, user_id: int) -> None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User is not a member of this group"
         )
+    from app.services import assignment_service, project_service
+
+    roadmaps_removed, roadmaps_kept = assignment_service.revoke_for_leaving_member(
+        db, group_id, user_id
+    )
+    projects_removed, projects_kept = project_service.revoke_for_leaving_member(
+        db, group_id, user_id
+    )
     db.delete(gm)
     db.commit()
+    return RemoveMemberResult(
+        revoked_roadmaps=roadmaps_removed,
+        kept_roadmaps=roadmaps_kept,
+        revoked_projects=projects_removed,
+        kept_projects=projects_kept,
+    )

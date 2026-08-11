@@ -1,6 +1,4 @@
 """User output/update schemas (shared by auth; extended by Dev B for /users)."""
-from datetime import date
-
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.models.enums import Department
@@ -43,18 +41,14 @@ class UserProfileFields(BaseModel):
     """Intern profile fields (backend-requirements mục 1).
 
     Every field is optional and only meaningful for `role=INTERN`.
-    `mentor_name`/`mentor_email` are resolved from `mentor_id` by the service.
+
+    Khối "Thông tin Hành chính & Đào tạo" (`phone`, `university`, `mentor_id`,
+    `start_date`, `end_date`) đã bị bỏ hẳn khỏi bảng `users` — xem migration
+    d5c8a2e64f19.
     """
     model_config = ConfigDict(from_attributes=True)
 
     department: Department | None = None
-    mentor_id: int | None = None
-    mentor_name: str | None = None
-    mentor_email: str | None = None
-    phone: str | None = None
-    start_date: date | None = None
-    end_date: date | None = None
-    university: str | None = None
     major: str | None = None
     bio: str | None = None
     github_url: str | None = None
@@ -95,11 +89,6 @@ class UserProfileUpdate(BaseModel):
     edits their *own* name/avatar.
     """
     department: Department | None = None
-    mentor_id: int | None = None
-    phone: str | None = Field(default=None, max_length=32)
-    start_date: date | None = None
-    end_date: date | None = None
-    university: str | None = Field(default=None, max_length=255)
     major: str | None = Field(default=None, max_length=255)
     bio: str | None = None
     github_url: str | None = Field(default=None, max_length=512)

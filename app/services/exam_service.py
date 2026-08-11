@@ -2,17 +2,16 @@
 
 CÁCH TÍNH ĐIỂM (một nơi duy nhất — mọi chỗ khác gọi vào đây):
 
-  * Thang điểm chuẩn hoá: **100 .. 1000**.
-  * Điểm đỗ: **>= 720** (~72%).
+  * **Mọi câu tính điểm như nhau** (chia đều), không có trọng số theo độ khó.
+  * Điểm = tỉ lệ câu đúng quy về **thang 1000**: `round(đúng / tổng * 1000)`.
+    Nói cách khác điểm chính là phần trăm nhân 10 (80% -> 800).
+  * Đỗ khi đúng **>= 80%** số câu.
   * Đề gồm 60 câu trắc nghiệm (một hoặc nhiều đáp án), làm trong 120 phút.
   * Câu trả lời đúng phải khớp CHÍNH XÁC tập đáp án đúng (client chấm, xem
     `MockExamView.handleSubmitExam`).
 
-LƯU Ý VỀ TRỌNG SỐ: đặc tả nói điểm tính theo "độ khó và trọng số từng câu", nhưng dữ
-liệu đề hiện tại (`src/data/CF.tests/**.json`) KHÔNG có trường độ khó/trọng số nào —
-mọi câu đang được tính như nhau. Khi đề có thêm trường đó, chỉ cần sửa
-`scaled_score()` nhận thêm tổng trọng số đạt được / tổng trọng số tối đa; phần còn
-lại của hệ thống không phải đổi.
+Điều kiện đỗ so sánh trên SỐ CÂU (`đúng * 100 >= tổng * 80`) chứ không so trên điểm
+đã làm tròn — nếu so trên điểm thì 79,96% làm tròn thành 800 sẽ đỗ oan.
 """
 from fastapi import HTTPException, status
 from sqlalchemy import Select, func, select
@@ -27,25 +26,37 @@ from app.schemas.exam import (
     ExamSummary,
 )
 
-#: Thang điểm chuẩn hoá.
-SCALE_MIN = 100
+#: Thang điểm: 0 (sai hết) .. 1000 (đúng hết).
+SCALE_MIN = 0
 SCALE_MAX = 1000
-#: Điểm tối thiểu để đỗ.
-PASSING_SCORE = 720
+#: Phần trăm câu đúng tối thiểu để đỗ.
+PASS_PERCENT = 80
+#: Điểm tương ứng với PASS_PERCENT trên thang 1000 — chỉ để hiển thị.
+PASSING_SCORE = SCALE_MAX * PASS_PERCENT // 100  # 800
 
 
 def scaled_score(correct_count: int, total_questions: int) -> int:
-    """Quy đổi số câu đúng sang thang 100..1000.
-
-    0 câu đúng -> 100 (không phải 0: thang bắt đầu từ 100), đúng hết -> 1000.
-    """
+    """Quy đổi số câu đúng sang thang 0..1000 (chia đều cho mọi câu)."""
     if total_questions <= 0:
         return SCALE_MIN
     ratio = min(1.0, max(0.0, correct_count / total_questions))
-    return round(SCALE_MIN + ratio * (SCALE_MAX - SCALE_MIN))
+    return round(ratio * SCALE_MAX)
 
 
-def is_passing(score: int) -> bool:
+def is_passing(correct_count: int, total_questions: int) -> bool:
+    """Đỗ khi đúng >= PASS_PERCENT% số câu.
+
+    So sánh bằng số nguyên trên SỐ CÂU, không so trên điểm đã làm tròn: 47/60 =
+    78,33% -> 783 điểm (trượt), nhưng nếu so `score >= 800` sau khi làm tròn thì
+    một tỉ lệ như 79,96% sẽ thành 800 và đỗ oan.
+    """
+    if total_questions <= 0:
+        return False
+    return correct_count * 100 >= total_questions * PASS_PERCENT
+
+
+def score_is_passing(score: int) -> bool:
+    """Dạng chỉ có điểm (dùng cho dữ liệu đã lưu, vd điểm tốt nhất mỗi đề)."""
     return score >= PASSING_SCORE
 
 
@@ -68,7 +79,7 @@ def record_attempt(db: Session, user: User, data: ExamAttemptCreate) -> ExamAtte
         total_questions=data.total_questions,
         correct_count=data.correct_count,
         score=score,
-        passed=is_passing(score),
+        passed=is_passing(data.correct_count, data.total_questions),
         duration_seconds=data.duration_seconds,
     )
     db.add(attempt)
@@ -115,7 +126,7 @@ def _best_rows(db: Session, user_ids: list[int]) -> dict[int, list[ExamBest]]:
                 exam_title=row.exam_title,
                 exam_code=row.exam_code,
                 best_score=row.best_score,
-                passed=is_passing(row.best_score),
+                passed=score_is_passing(row.best_score),
                 attempts=row.attempts,
                 last_taken_at=row.last_taken_at,
             )

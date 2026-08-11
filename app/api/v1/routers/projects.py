@@ -18,6 +18,7 @@ from app.core.pagination import (
 from app.models.enums import Department
 from app.models.project import ProjectStatus
 from app.schemas.common import Page
+from app.schemas.group import AddGroupResult, AddGroupToProjectRequest
 from app.schemas.project import (
     AddProjectMembersRequest,
     ProjectCreate,
@@ -107,6 +108,22 @@ def add_members(
     Returns the project's current member list."""
     members = svc.add_members(db, project_id, payload.user_ids)
     return [ProjectMemberOut.model_validate(m) for m in members]
+
+
+@router.post("/{project_id}/members/group", response_model=AddGroupResult)
+def add_group_to_project(
+    project_id: int,
+    payload: AddGroupToProjectRequest,
+    db: DbSession,
+    current_user: MentorRequired,
+) -> AddGroupResult:
+    """Gán cả một NHÓM vào dự án (một transaction, bỏ qua ai đã là thành viên).
+
+    Đây là luật thường trực chứ không phải chép một lần: người vào nhóm sau này sẽ
+    tự được thêm vào dự án. Đối xứng với `POST /roadmaps/{id}/assign-group`.
+    """
+    added, skipped = svc.add_group(db, project_id, payload.group_id)
+    return AddGroupResult(added_count=added, skipped_existing=skipped)
 
 
 @router.delete(

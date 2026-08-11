@@ -279,6 +279,133 @@ def add_members(db: Session, project_id: int, user_ids: list[int]) -> list[User]
     return list_members(db, project_id)
 
 
+# --------------------------------------------------------------------------- #
+# Gán theo nhóm — đối xứng với assignment_service (xem giải thích ở đó)
+# --------------------------------------------------------------------------- #
+def project_ids_for_group(db: Session, group_id: int) -> set[int]:
+    """Các dự án mà nhóm này đang được gán vào."""
+    return set(
+        db.scalars(
+            select(ProjectMember.project_id)
+            .join(Project, Project.id == ProjectMember.project_id)
+            .where(
+                ProjectMember.source_group_id == group_id,
+                Project.deleted_at.is_(None),
+            )
+            .distinct()
+        ).all()
+    )
+
+
+def add_group(db: Session, project_id: int, group_id: int) -> tuple[int, int]:
+    """Gán cả một NHÓM vào dự án. Trả về (thêm mới, bỏ qua vì đã là thành viên).
+
+    Ghi `source_group_id` để người vào nhóm sau cũng tự được thêm vào dự án này.
+    Người đã là thành viên từ trước giữ nguyên nguồn cũ — nếu ghi đè thành "vào
+    bằng nhóm" thì lúc họ rời nhóm sẽ bị gỡ oan khỏi dự án.
+    """
+    from app.models.group import Group, GroupMember
+
+    get_project(db, project_id)  # 404 nếu dự án không tồn tại
+    if db.get(Group, group_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
+
+    member_ids = set(
+        db.scalars(
+            select(GroupMember.user_id)
+            .join(User, User.id == GroupMember.user_id)
+            .where(GroupMember.group_id == group_id, User.deleted_at.is_(None))
+        ).all()
+    )
+    if not member_ids:
+        return 0, 0
+    already = set(
+        db.scalars(
+            select(ProjectMember.user_id).where(
+                ProjectMember.project_id == project_id,
+                ProjectMember.user_id.in_(member_ids),
+            )
+        ).all()
+    )
+    to_add = member_ids - already
+    if to_add:
+        db.add_all(
+            ProjectMember(project_id=project_id, user_id=uid, source_group_id=group_id)
+            for uid in to_add
+        )
+        db.commit()
+    return len(to_add), len(already)
+
+
+def sync_new_group_members(db: Session, group_id: int, user_ids: set[int]) -> int:
+    """Thêm người vừa vào nhóm vào mọi dự án mà nhóm đang tham gia.
+
+    Không commit — người gọi commit chung một transaction.
+    """
+    if not user_ids:
+        return 0
+    project_ids = project_ids_for_group(db, group_id)
+    if not project_ids:
+        return 0
+    existing = {
+        (pid, uid)
+        for pid, uid in db.execute(
+            select(ProjectMember.project_id, ProjectMember.user_id).where(
+                ProjectMember.project_id.in_(project_ids),
+                ProjectMember.user_id.in_(user_ids),
+            )
+        ).all()
+    }
+    created = [
+        ProjectMember(project_id=pid, user_id=uid, source_group_id=group_id)
+        for pid in project_ids
+        for uid in user_ids
+        if (pid, uid) not in existing
+    ]
+    if created:
+        db.add_all(created)
+    return len(created)
+
+
+def revoke_for_leaving_member(db: Session, group_id: int, user_id: int) -> tuple[int, int]:
+    """Xử lý thành viên dự án khi một người rời nhóm. Trả về (đã gỡ, giữ lại).
+
+    Chỉ đụng tới tư cách thành viên ĐẾN TỪ nhóm này. Nếu người đó đang có task
+    trong dự án thì KHÔNG gỡ (task sẽ thành mồ côi) — chuyển thành thành viên
+    thêm lẻ (`source_group_id = NULL`).
+    """
+    from app.models.task import Task
+
+    from_group = list(
+        db.scalars(
+            select(ProjectMember).where(
+                ProjectMember.source_group_id == group_id,
+                ProjectMember.user_id == user_id,
+            )
+        ).all()
+    )
+    if not from_group:
+        return 0, 0
+
+    has_tasks = set(
+        db.scalars(
+            select(Task.project_id).where(
+                Task.project_id.in_([m.project_id for m in from_group]),
+                Task.assigned_intern_id == user_id,
+            )
+        ).all()
+    )
+    removed = kept = 0
+    for m in from_group:
+        if m.project_id in has_tasks:
+            m.source_group_id = None
+            kept += 1
+        else:
+            db.delete(m)
+            removed += 1
+    return removed, kept
+
+
 def remove_member(db: Session, project_id: int, user_id: int) -> None:
     get_project(db, project_id)  # 404 if missing
     pm = db.scalar(
