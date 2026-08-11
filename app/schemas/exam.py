@@ -46,6 +46,9 @@ class ExamBest(BaseModel):
     last_taken_at: datetime
 
 
+from app.models.user import Role
+
+
 class ExamSummary(BaseModel):
     """Tổng hợp điểm thi của MỘT người.
 
@@ -55,6 +58,7 @@ class ExamSummary(BaseModel):
     user_id: int
     full_name: str | None = None
     email: str | None = None
+    role: Role | None = None
     #: None nếu chưa thi bài nào ở chế độ thi.
     avg_score: float | None = None
     best_score: int | None = None

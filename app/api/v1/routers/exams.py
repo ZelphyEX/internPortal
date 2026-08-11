@@ -78,7 +78,7 @@ def exam_overview(db: DbSession, current_user: MentorRequired) -> ExamOverview:
 
     Dùng cho thẻ "Điểm Năng lực TB" ở Dashboard của Mentor.
     """
-    return svc.overview(db)
+    return svc.overview(db, current_user)
 
 
 @router.get("/users/{user_id}/exam-attempts", response_model=Page[ExamAttemptOut])
@@ -91,6 +91,21 @@ def list_user_attempts(
 ) -> Page[ExamAttemptOut]:
     """MENTOR/ADMIN. Lịch sử làm bài của một người. 404 nếu không tồn tại."""
     target = user_service.get_user(db, user_id)
+    
+    if current_user.id != target.id:
+        from app.models.user import Role
+        from fastapi import HTTPException, status
+        if current_user.role == Role.MENTOR and target.role != Role.INTERN:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Mentor chỉ có quyền truy cập kết quả thi của Thực tập sinh."
+            )
+        if current_user.role == Role.ADMIN and target.role not in (Role.MENTOR, Role.INTERN):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin chỉ có quyền truy cập kết quả thi của Mentor và Thực tập sinh."
+            )
+
     rows, total, pages = paginate(db, svc.attempts_query(target.id), page=page, size=size)
     return Page(items=list(rows), total=total, page=page, size=size, pages=pages)
 
@@ -100,4 +115,20 @@ def user_summary(
     user_id: int, db: DbSession, current_user: MentorRequired,
 ) -> ExamSummary:
     """MENTOR/ADMIN. Điểm trung bình + điểm từng đề của một người."""
-    return svc.summary_for(db, user_service.get_user(db, user_id))
+    target = user_service.get_user(db, user_id)
+    
+    if current_user.id != target.id:
+        from app.models.user import Role
+        from fastapi import HTTPException, status
+        if current_user.role == Role.MENTOR and target.role != Role.INTERN:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Mentor chỉ có quyền truy cập kết quả thi của Thực tập sinh."
+            )
+        if current_user.role == Role.ADMIN and target.role not in (Role.MENTOR, Role.INTERN):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin chỉ có quyền truy cập kết quả thi của Mentor và Thực tập sinh."
+            )
+
+    return svc.summary_for(db, target)

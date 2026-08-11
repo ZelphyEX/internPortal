@@ -125,7 +125,7 @@ def _best_rows(db: Session, user_ids: list[int]) -> dict[int, list[ExamBest]]:
 
 def _summary_from_bests(user: User, bests: list[ExamBest]) -> ExamSummary:
     summary = ExamSummary(
-        user_id=user.id, full_name=user.full_name, email=user.email,
+        user_id=user.id, full_name=user.full_name, email=user.email, role=user.role,
     )
     if not bests:
         return summary
@@ -144,30 +144,28 @@ def summary_for(db: Session, user: User) -> ExamSummary:
     return _summary_from_bests(user, _best_rows(db, [user.id]).get(user.id, []))
 
 
-def overview(db: Session) -> ExamOverview:
-    """Điểm trung bình toàn bộ Thực tập sinh (thẻ "Điểm Năng lực TB" của Mentor).
+def overview(db: Session, current_user: User) -> ExamOverview:
+    """Điểm trung bình của những người được phép xem (Mentor xem Intern, Admin xem Mentor+Intern).
 
-    Trung bình được tính trên những Intern ĐÃ thi ít nhất một bài — cộng cả người
-    chưa thi (coi như 0) sẽ kéo con số xuống một cách vô nghĩa.
+    Trung bình được tính trên những người ĐÃ thi ít nhất một bài.
     """
-    interns = list(
-        db.scalars(
-            select(User)
-            .where(
-                User.role == Role.INTERN,
-                User.deleted_at.is_(None),
-            )
-            .order_by(User.full_name.asc())
-        ).all()
+    stmt = select(User).where(User.deleted_at.is_(None))
+    if current_user.role == Role.ADMIN:
+        stmt = stmt.where(User.role.in_([Role.MENTOR, Role.INTERN]))
+    else:
+        stmt = stmt.where(User.role == Role.INTERN)
+
+    targets = list(
+        db.scalars(stmt.order_by(User.full_name.asc())).all()
     )
-    bests = _best_rows(db, [u.id for u in interns])
-    summaries = [_summary_from_bests(u, bests.get(u.id, [])) for u in interns]
+    bests = _best_rows(db, [u.id for u in targets])
+    summaries = [_summary_from_bests(u, bests.get(u.id, [])) for u in targets]
 
     scored = [s.avg_score for s in summaries if s.avg_score is not None]
     summaries.sort(key=lambda s: (s.avg_score is None, -(s.avg_score or 0)))
     return ExamOverview(
         avg_score=round(sum(scored) / len(scored), 1) if scored else None,
         interns_with_attempts=len(scored),
-        interns_total=len(interns),
+        interns_total=len(targets),
         interns=summaries,
     )
