@@ -40,6 +40,14 @@ jobs:
             exit 1
           fi
 
+      # Chặn lỗi "container failed to start and listen on port 8080" do migration:
+      # Dockerfile chạy `alembic upgrade head && ... && uvicorn`, nên hai head song
+      # song (hai người tạo migration cùng lúc) làm Alembic bỏ chạy -> uvicorn không
+      # bao giờ lên -> deploy thất bại với thông báo không hề nhắc tới migration.
+      # Script chỉ đọc file, không cần DB hay dependency nào.
+      - name: Validate migration chain (single head)
+        run: python3 -m scripts.check_migration_heads
+
       - name: Authenticate to Google Cloud (WIF)
         id: auth
         uses: google-github-actions/auth@v3

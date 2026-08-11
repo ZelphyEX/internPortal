@@ -16,8 +16,13 @@ không lấy lại được (số điện thoại, trường, mentor phụ trác
 Nếu cần giữ, sao lưu bảng `users` trước khi chạy.
 
 Revision ID: d5c8a2e64f19
-Revises: a4e19f70c2b8
+Revises: b3f19c90f2d8
 Create Date: 2026-08-12 09:00:00.000000+00:00
+
+Ghi chú: bản này ban đầu nối vào `a4e19f70c2b8`, trùng với `b3f19c90f2d8`
+(add mode to exam_attempts) được tạo song song -> Alembic có HAI head và
+`alembic upgrade head` báo lỗi, khiến container Cloud Run không khởi động được.
+Đã nối lại thành một chuỗi thẳng: a4e19f70c2b8 -> b3f19c90f2d8 -> d5c8a2e64f19.
 """
 from typing import Sequence, Union
 
@@ -26,7 +31,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = 'd5c8a2e64f19'
-down_revision: Union[str, None] = 'a4e19f70c2b8'
+down_revision: Union[str, None] = 'b3f19c90f2d8'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
