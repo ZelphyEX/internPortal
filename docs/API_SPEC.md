@@ -668,6 +668,17 @@ Quyền: INTERN (chỉ assignment của chính mình, nếu không → `403`).
   ] }
 ```
 
+### GET /users/{user_id}/roadmaps — Lộ trình của MỘT người (Mentor xem)
+Quyền: MENTOR. Cùng shape với `GET /me/roadmaps`. `404` nếu user không tồn tại.
+Dùng ở màn hồ sơ chi tiết Thực tập sinh (khối "Chi tiết Lộ trình Đào tạo").
+
+### GET /users/{user_id}/roadmaps/{assignment_id} — Đã học xong bài nào (Mentor xem)
+Quyền: MENTOR. Cùng shape với `GET /me/roadmaps/{assignment_id}` — từng chặng, từng
+bài học, `completed` + `completed_at`.
+`403` nếu `assignment_id` không thuộc `user_id` (dùng chung hàm kiểm tra sở hữu với
+endpoint `/me/...`, nên không lộ được lượt gán của người khác); `404` nếu user hoặc
+lượt gán không tồn tại.
+
 ### POST /lessons/{module_document_id}/complete — Đánh dấu hoàn thành bài học
 Quyền: INTERN.
 ```json
@@ -960,6 +971,8 @@ Response `200` (ghi nhận `reviewed_by`, `reviewer_name`, `reviewed_at`). Lỗi
 | GET | /exam-attempts/me | INTERN/MENTOR | Lịch sử làm bài của mình |
 | GET | /exam-attempts/me/summary | INTERN/MENTOR | Điểm TB + điểm từng đề của mình |
 | GET | /exam-attempts/overview | MENTOR | Điểm TB toàn bộ Thực tập sinh |
+| GET | /users/{id}/roadmaps | MENTOR | Lộ trình + tiến độ của một người |
+| GET | /users/{id}/roadmaps/{assignment_id} | MENTOR | Người đó đã học xong bài nào |
 | GET | /users/{id}/exam-attempts | MENTOR | Lịch sử làm bài của một người |
 | GET | /users/{id}/exam-attempts/summary | MENTOR | Điểm từng đề của một người |
 | GET | /groups | MENTOR | Danh sách nhóm |
