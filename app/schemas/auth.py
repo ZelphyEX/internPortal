@@ -4,7 +4,6 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from app.models.enums import Department
 from app.models.user import Role, UserStatus
 
 
@@ -50,9 +49,11 @@ class GoogleProfile(BaseModel):
     email: EmailStr
     full_name: str
     avatar_url: str | None = None
-    #: Vai trò sẽ được cấp nếu đăng ký tiếp (suy ra từ tên miền email).
+    #: Vai trò sẽ được cấp nếu đăng ký tiếp. Hiện luôn là INTERN — muốn lên MENTOR
+    #: thì gửi yêu cầu chuyển vai trò sau khi vào portal (mục 3b).
     assigned_role: Role
-    #: True nếu tài khoản tạo ra phải chờ Admin duyệt (tên miền của Mentor).
+    #: True nếu tài khoản tạo ra phải chờ Admin duyệt. Với luồng hiện tại luôn False;
+    #: giữ lại để client xử lý được nếu chính sách đổi.
     needs_admin_approval: bool = False
 
 
@@ -70,19 +71,18 @@ class GoogleAuthResponse(BaseModel):
 
 
 class GoogleSignupRequest(BaseModel):
-    """`POST /auth/google/complete` — hồ sơ bắt buộc khi tạo tài khoản mới.
+    """`POST /auth/google/complete` — tạo tài khoản mới.
+
+    Chỉ cần **họ tên** (đã điền sẵn từ Google, người dùng sửa được). Các thông tin
+    hồ sơ khác (SĐT, trường, ngành, đơn vị, GitHub) KHÔNG hỏi lúc đăng ký nữa —
+    Mentor bổ sung sau qua `PATCH /users/{id}/profile`, hoặc chủ tài khoản tự sửa
+    tên/ảnh qua `PATCH /auth/me`.
 
     Email KHÔNG nằm trong body: nó được lấy từ `signup_ticket` mà server đã ký
     sau khi Google xác thực, nên không ai đăng ký hộ email người khác được.
     """
     signup_ticket: str
     full_name: str = Field(min_length=2, max_length=255)
-    phone: str = Field(min_length=8, max_length=32)
-    department: Department
-    # Bắt buộc với Thực tập sinh, không cần với Mentor (service kiểm tra theo vai trò).
-    university: str | None = Field(default=None, max_length=255)
-    major: str | None = Field(default=None, max_length=255)
-    github_url: str | None = Field(default=None, max_length=512)
 
 
 class RefreshRequest(BaseModel):

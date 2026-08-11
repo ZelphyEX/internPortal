@@ -59,8 +59,12 @@ def google_login(payload: GoogleLoginRequest, db: DbSession) -> GoogleAuthRespon
     * Chưa có tài khoản -> `status="NEEDS_REGISTRATION"`, kèm `profile` (điền sẵn
       form) và `signup_ticket` (gửi lại ở `POST /auth/google/complete`).
 
-    403 nếu email không thuộc tên miền Gimasys, nếu tài khoản bị khoá, hoặc nếu là
-    Mentor chưa được Admin duyệt (detail bắt đầu bằng `PENDING_APPROVAL`).
+    Người đăng nhập lần đầu luôn được cấp vai trò **INTERN** và dùng được ngay —
+    tên miền email không quyết định vai trò. Muốn lên MENTOR thì gửi yêu cầu chuyển
+    vai trò (mục 3b) để ADMIN duyệt.
+
+    403 nếu email không thuộc tên miền Gimasys, tài khoản bị khoá, hoặc tài khoản
+    đang chờ duyệt (detail bắt đầu bằng `PENDING_APPROVAL`).
     """
     result, user, identity = auth_service.google_sign_in(db, payload.credential)
 
@@ -87,7 +91,9 @@ def google_login(payload: GoogleLoginRequest, db: DbSession) -> GoogleAuthRespon
 
 @router.post("/google/complete", response_model=GoogleAuthResponse, status_code=status.HTTP_201_CREATED)
 def google_complete_signup(payload: GoogleSignupRequest, db: DbSession) -> GoogleAuthResponse:
-    """Công khai (bảo vệ bằng `signup_ticket`). Bước 2: tạo tài khoản từ hồ sơ vừa nhập.
+    """Công khai (bảo vệ bằng `signup_ticket`). Bước 2: tạo tài khoản.
+
+    Chỉ cần `full_name` (đã điền sẵn từ Google, người dùng sửa được).
 
     Vai trò do tên miền email quyết định: `@edu.gimasys.com` -> INTERN dùng được
     ngay; `@gimasys.com` -> MENTOR ở trạng thái PENDING. Với Mentor, response
@@ -97,13 +103,7 @@ def google_complete_signup(payload: GoogleSignupRequest, db: DbSession) -> Googl
     400 nếu vé hết hạn / thiếu trường bắt buộc, 409 nếu email đã có tài khoản.
     """
     user = auth_service.complete_google_signup(
-        db,
-        signup_ticket=payload.signup_ticket,
-        full_name=payload.full_name,
-        profile=payload.model_dump(
-            include={"phone", "department", "university", "major", "github_url"},
-            exclude_none=True,
-        ),
+        db, signup_ticket=payload.signup_ticket, full_name=payload.full_name,
     )
 
     if user.status == UserStatus.PENDING:

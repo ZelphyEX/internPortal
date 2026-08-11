@@ -111,6 +111,7 @@ Kiểu dữ liệu: `id` = BigInteger PK auto-increment. Mọi bảng có `creat
 - Login trả `access_token` (JWT ngắn hạn, 30 phút) + `refresh_token` (lưu **hash** trong `refresh_tokens`) + `session_expires_at`. Access token hết hạn → gọi `/auth/refresh`.
 - **Một phiên đăng nhập chỉ sống `REFRESH_TOKEN_EXPIRE_DAYS` = 1 ngày.** Đây là hạn TUYỆT ĐỐI: `/auth/refresh` không cấp refresh token mới nên không đẩy mốc này ra xa. Hết hạn là phải đăng nhập lại, kể cả khi đang dùng liên tục.
 - **Người dùng chỉ đăng nhập bằng Google** (`POST /auth/google` → `POST /auth/google/complete`), chỉ nhận email thuộc `ALLOWED_EMAIL_DOMAINS`. `POST /auth/register` đã tắt; `POST /auth/login` (mật khẩu) chỉ dành cho tài khoản ADMIN do `scripts/ensure_admin.py` tạo.
+- **Ai đăng nhập lần đầu cũng là `INTERN`/`ACTIVE`** — tên miền email KHÔNG quyết định vai trò. Đường duy nhất lên `MENTOR` là `POST /role-requests` rồi ADMIN duyệt. Hạ từ MENTOR về INTERN thì áp dụng ngay, không cần duyệt.
 - Phân trang: query `?page=1&size=20`. Response: `{ "items": [], "total", "page", "size", "pages" }`.
 - Định dạng lỗi: `{ "detail": "..." }`.
 - Mã trạng thái: 200 OK, 201 Created, 204 No Content, 400, 401 (chưa/hết hạn token), 403 (thiếu quyền), 404, 409 (trùng dữ liệu), 422 (sai kiểu — FastAPI tự validate).

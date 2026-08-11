@@ -39,10 +39,9 @@ class Settings(BaseSettings):
     # Gmail bấm đăng nhập. Vì vậy việc giới hạn tên miền PHẢI làm ở backend:
     # chỉ email thuộc các tên miền dưới đây mới đăng ký/đăng nhập được.
     GOOGLE_CLIENT_ID: str | None = None
+    # Tên miền KHÔNG quyết định vai trò: ai đăng nhập lần đầu cũng là INTERN. Đây
+    # chỉ là danh sách được phép vào hệ thống.
     ALLOWED_EMAIL_DOMAINS: str = "gimasys.com,edu.gimasys.com"
-    # Tên miền nào ra vai trò nào khi tạo tài khoản mới (xem auth_service.role_for_email).
-    MENTOR_EMAIL_DOMAIN: str = "gimasys.com"
-    INTERN_EMAIL_DOMAIN: str = "edu.gimasys.com"
     # Vé đăng ký tạm (ký bằng SECRET_KEY) cấp sau khi Google xác thực xong nhưng
     # tài khoản chưa tồn tại — người dùng phải điền hồ sơ trong khoảng thời gian này.
     SIGNUP_TICKET_EXPIRE_MINUTES: int = 30

@@ -11,6 +11,7 @@ from app.api.v1.routers import (
     daily_reports,
     dashboard,
     documents,
+    exams,
     groups,
     learning,
     projects,
@@ -43,3 +44,6 @@ api_router.include_router(dashboard.router)
 api_router.include_router(projects.router)
 api_router.include_router(tasks.router)
 api_router.include_router(daily_reports.router)
+
+# --- Điểm thi thử Anthropic Mock Exam ---
+api_router.include_router(exams.router)

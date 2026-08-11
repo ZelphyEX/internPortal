@@ -58,21 +58,17 @@ def _validate_email_domain(email: str) -> None:
 
 
 def role_for_email(email: str) -> tuple[Role, UserStatus]:
-    """Vai trò + trạng thái khởi tạo cho tài khoản mới, suy ra từ tên miền email.
+    """Vai trò + trạng thái khởi tạo cho tài khoản mới.
 
-      * `@gimasys.com`     -> MENTOR, PENDING (phải chờ Admin duyệt)
-      * `@edu.gimasys.com` -> INTERN, ACTIVE  (dùng được ngay)
+    **Ai đăng nhập lần đầu cũng là INTERN và dùng được portal ngay.** Tên miền
+    email KHÔNG còn quyết định vai trò nữa.
 
-    Sau này đổi vai trò bằng yêu cầu chuyển vai trò (xem `role_request_service`),
-    không phải bằng cách tự khai lúc đăng ký.
+    Trước đây `@gimasys.com` được cấp MENTOR ở trạng thái PENDING, dẫn tới hai hệ quả
+    xấu: nhân viên mới bị chặn ngoài cửa cho tới khi Admin duyệt, và hệ thống có HAI
+    đường lên Mentor (theo tên miền + theo yêu cầu chuyển vai trò) dễ lệch nhau.
+    Nay chỉ còn một đường duy nhất: `POST /role-requests` -> Admin duyệt
+    (xem `role_request_service`).
     """
-    domain = _domain_of(email)
-    if domain == settings.MENTOR_EMAIL_DOMAIN.strip().lower():
-        return Role.MENTOR, UserStatus.PENDING
-    if domain == settings.INTERN_EMAIL_DOMAIN.strip().lower():
-        return Role.INTERN, UserStatus.ACTIVE
-    # Tên miền nằm trong ALLOWED_EMAIL_DOMAINS nhưng chưa gán vai trò -> chọn mức
-    # quyền THẤP NHẤT. Cấu hình thiếu sót không được biến thành nâng quyền.
     return Role.INTERN, UserStatus.ACTIVE
 
 
@@ -245,12 +241,16 @@ def google_sign_in(db: Session, credential: str) -> tuple[str, User | None, dict
 
 
 def complete_google_signup(
-    db: Session, *, signup_ticket: str, full_name: str, profile: dict,
+    db: Session, *, signup_ticket: str, full_name: str,
 ) -> User:
-    """Tạo tài khoản sau khi người dùng điền hồ sơ (bước 2 của đăng nhập Google).
+    """Tạo tài khoản sau khi người dùng xác nhận họ tên (bước 2 của đăng nhập Google).
+
+    Chỉ cần họ tên. Hồ sơ chi tiết (SĐT, trường, ngành, đơn vị) để Mentor bổ sung
+    sau qua `PATCH /users/{id}/profile` — bắt khai lúc đăng nhập chỉ làm chậm người
+    dùng mà phần lớn trường không dùng ngay.
 
     Email lấy từ vé đăng ký đã ký, KHÔNG lấy từ body — nên không ai đăng ký được
-    bằng email của người khác. Vai trò suy ra từ tên miền (`role_for_email`).
+    bằng email của người khác.
     """
     try:
         payload = security.decode_signup_ticket(signup_ticket)
@@ -270,20 +270,6 @@ def complete_google_signup(
     _assert_email_free(db, email)
 
     role, initial_status = role_for_email(email)
-    # Thực tập sinh bắt buộc khai trường + ngành (Mentor thì không cần). Kiểm tra
-    # ở server vì vai trò do tên miền quyết định, frontend không được tự khai.
-    if role == Role.INTERN:
-        missing = [
-            label
-            for label, value in (("Trường", profile.get("university")), ("Ngành", profile.get("major")))
-            if not (value or "").strip()
-        ]
-        if missing:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Thực tập sinh phải điền: {', '.join(missing)}.",
-            )
-
     user = User(
         full_name=full_name.strip(),
         email=email,
@@ -294,8 +280,6 @@ def complete_google_signup(
         status=initial_status,
         avatar_url=payload.get("picture"),
     )
-    for key, value in profile.items():
-        setattr(user, key, value)
     db.add(user)
     db.commit()
     db.refresh(user)

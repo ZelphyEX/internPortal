@@ -70,9 +70,13 @@ Ràng buộc: `page >= 1`, `size` trong khoảng `1..100` (**mặc định 20**)
 > **Đăng nhập bằng Google là đường vào duy nhất của người dùng.** Chỉ email thuộc
 > `ALLOWED_EMAIL_DOMAINS` (mặc định `gimasys.com`, `edu.gimasys.com`) được chấp nhận —
 > OAuth Consent Screen đặt là "External" nên Google không tự chặn, backend phải chặn.
-> Vai trò suy ra từ tên miền: `@edu.gimasys.com` → INTERN (`ACTIVE`),
-> `@gimasys.com` → MENTOR (`PENDING`, chờ ADMIN duyệt). Muốn đổi vai trò về sau thì
-> dùng **yêu cầu chuyển vai trò** (mục 3b).
+> **Ai đăng nhập lần đầu cũng được cấp vai trò `INTERN` với trạng thái `ACTIVE`** —
+> tên miền email KHÔNG quyết định vai trò. Đường duy nhất lên `MENTOR` là **yêu cầu
+> chuyển vai trò** (mục 3b) do ADMIN duyệt.
+>
+> Form đăng ký **chỉ hỏi họ tên** (điền sẵn từ Google, sửa được). Hồ sơ chi tiết
+> (SĐT, trường, ngành, đơn vị, GitHub) do Mentor bổ sung sau qua
+> `PATCH /users/{id}/profile`.
 >
 > **Tuổi thọ phiên: `REFRESH_TOKEN_EXPIRE_DAYS` (mặc định 1 ngày).** Mọi response
 > cấp token đều kèm `session_expires_at` (ISO 8601 UTC) — hạn **tuyệt đối** tính từ
@@ -125,16 +129,14 @@ Quyền: công khai, nhưng phải kèm `signup_ticket` do bước 1 cấp (hế
 `SIGNUP_TICKET_EXPIRE_MINUTES`). **Email lấy từ vé, không lấy từ body** — nên không ai
 đăng ký hộ email người khác được. Vai trò cũng do server suy ra, client không gửi lên.
 ```json
-// Request — university/major bắt buộc với INTERN, không cần với MENTOR
-{ "signup_ticket": "eyJhbGci...", "full_name": "Nguyen Van A", "phone": "0988123456",
-  "department": "Java Back-End", "university": "ĐH Công nghệ", "major": "CNTT",
-  "github_url": "https://github.com/a" }
+// Request — chỉ cần họ tên
+{ "signup_ticket": "eyJhbGci...", "full_name": "Nguyen Van A" }
 ```
-Response `201` cùng shape với `/auth/google`: INTERN nhận `AUTHENTICATED` + tokens;
-MENTOR nhận `NEEDS_REGISTRATION` với `needs_admin_approval: true` và **không có token**
-(phải chờ ADMIN duyệt rồi đăng nhập lại).
-Lỗi: `400` vé hết hạn / thiếu trường bắt buộc theo vai trò; `403` email ngoài tên miền;
-`409` email đã có tài khoản.
+Response `201` cùng shape với `/auth/google`: `AUTHENTICATED` + tokens, vai trò `INTERN`.
+(Nhánh `NEEDS_REGISTRATION` + `needs_admin_approval: true` chỉ xảy ra nếu chính sách đổi
+sang "tài khoản mới phải chờ duyệt"; luồng hiện tại không dùng.)
+Lỗi: `400` vé hết hạn/không hợp lệ; `403` email ngoài tên miền cho phép; `409` email đã
+có tài khoản.
 
 ### POST /auth/login — Đăng nhập bằng mật khẩu (CHỈ tài khoản ADMIN)
 Quyền: công khai, nhưng **403 nếu tài khoản không phải ADMIN**. Intern/Mentor bắt buộc
@@ -325,6 +327,77 @@ Quyền: ADMIN. Đổi `users.role` của người gửi sang `to_role` ngay. Re
 
 ### PATCH /role-requests/{id}/reject — Từ chối
 Quyền: ADMIN. `status = REJECTED`, vai trò giữ nguyên. Người dùng gửi lại được sau.
+
+---
+
+## 3c. Nhóm API: Điểm thi thử Anthropic Mock Exam
+
+Đề thi là dữ liệu **tĩnh trong bundle frontend** (`src/data/CF.tests/`), server không
+có đáp án nên không tự chấm lại được. Client gửi số câu đúng, **server tự tính điểm**
+(client không gửi `score`).
+
+**Cách tính điểm** (`app/services/exam_service.py` — nguồn duy nhất):
+- Thang chuẩn hoá **100 – 1000**: `score = round(100 + correct/total * 900)`.
+- Đỗ: **>= 720**.
+- Đề: 60 câu trắc nghiệm (một hoặc nhiều đáp án), 120 phút. Câu đúng phải khớp
+  **chính xác** tập đáp án đúng.
+- ⚠️ Đặc tả nói tính theo "độ khó và trọng số từng câu" nhưng dữ liệu đề hiện tại
+  KHÔNG có trường độ khó/trọng số — mọi câu đang tính như nhau. Khi đề bổ sung trường
+  đó chỉ cần sửa `scaled_score()`.
+
+Chỉ bài làm ở **chế độ thi** mới được nộp; chế độ luyện tập không ghi nhận.
+"Điểm của một đề" = điểm **cao nhất** trong các lần làm đề đó.
+
+### POST /exam-attempts — Nộp kết quả một lần thi
+Quyền: INTERN/MENTOR.
+```json
+// Request
+{ "exam_id": "claude-dev-1", "exam_title": "Claude Developer — Practice Exam 1",
+  "exam_code": "Claude Developer", "total_questions": 60, "correct_count": 45,
+  "duration_seconds": 5400 }
+```
+```json
+// Response 201
+{ "id": 9, "user_id": 12, "exam_id": "claude-dev-1", "exam_title": "...",
+  "exam_code": "Claude Developer", "total_questions": 60, "correct_count": 45,
+  "score": 775, "passed": true, "duration_seconds": 5400,
+  "created_at": "2026-08-11T03:00:00Z" }
+```
+Lỗi: `400` nếu `correct_count > total_questions`.
+
+### GET /exam-attempts/me — Lịch sử làm bài của mình
+Quyền: INTERN/MENTOR. Phân trang, mới nhất trước.
+
+### GET /exam-attempts/me/summary — Điểm tổng hợp của mình
+Quyền: INTERN/MENTOR. `avg_score` = trung bình điểm **tốt nhất mỗi đề** (làm lại nhiều
+lần không kéo trung bình xuống), `null` nếu chưa thi bài nào.
+```json
+// Response 200
+{ "user_id": 12, "full_name": "Nguyen Van A", "email": "a@edu.gimasys.com",
+  "avg_score": 812.5, "best_score": 900, "exams_taken": 4, "exams_passed": 3,
+  "attempts_count": 7,
+  "per_exam": [
+    { "exam_id": "claude-dev-1", "exam_title": "...", "exam_code": "Claude Developer",
+      "best_score": 900, "passed": true, "attempts": 2,
+      "last_taken_at": "2026-08-11T03:00:00Z" }
+  ] }
+```
+
+### GET /exam-attempts/overview — Điểm TB toàn bộ Thực tập sinh
+Quyền: MENTOR. Dùng cho thẻ "Điểm Năng lực TB" ở Dashboard của Mentor.
+`avg_score` là trung bình `avg_score` của các Intern **đã thi ít nhất 1 bài** — người
+chưa thi không bị tính 0 điểm.
+```json
+// Response 200
+{ "avg_score": 764.2, "interns_with_attempts": 5, "interns_total": 8,
+  "interns": [ { "user_id": 12, "full_name": "...", "avg_score": 812.5, "...": "..." } ] }
+```
+
+### GET /users/{id}/exam-attempts — Lịch sử làm bài của một người
+Quyền: MENTOR. Phân trang. 404 nếu user không tồn tại.
+
+### GET /users/{id}/exam-attempts/summary — Điểm từng đề của một người
+Quyền: MENTOR. Cùng shape với `/exam-attempts/me/summary`.
 
 ---
 
@@ -834,6 +907,12 @@ Response `200` (ghi nhận `reviewed_by`, `reviewer_name`, `reviewed_at`). Lỗi
 | GET | /role-requests | ADMIN | Hàng đợi yêu cầu chuyển vai trò |
 | PATCH | /role-requests/{id}/approve | ADMIN | Duyệt (đổi vai trò ngay) |
 | PATCH | /role-requests/{id}/reject | ADMIN | Từ chối (giữ nguyên vai trò) |
+| POST | /exam-attempts | INTERN/MENTOR | Nộp kết quả một lần thi thử |
+| GET | /exam-attempts/me | INTERN/MENTOR | Lịch sử làm bài của mình |
+| GET | /exam-attempts/me/summary | INTERN/MENTOR | Điểm TB + điểm từng đề của mình |
+| GET | /exam-attempts/overview | MENTOR | Điểm TB toàn bộ Thực tập sinh |
+| GET | /users/{id}/exam-attempts | MENTOR | Lịch sử làm bài của một người |
+| GET | /users/{id}/exam-attempts/summary | MENTOR | Điểm từng đề của một người |
 | GET | /groups | MENTOR | Danh sách nhóm |
 | POST | /groups | MENTOR | Tạo nhóm |
 | GET | /groups/{id} | MENTOR | Chi tiết nhóm + thành viên |
