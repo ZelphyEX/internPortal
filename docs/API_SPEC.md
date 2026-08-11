@@ -432,16 +432,42 @@ Quyền: MENTOR. Response `200`.
 ### DELETE /groups/{id} — Xóa nhóm
 Quyền: MENTOR. Response `204`.
 
+> **GÁN NHÓM LÀ LUẬT THƯỜNG TRỰC, KHÔNG PHẢI CHÉP MỘT LẦN.**
+> `roadmap_assignments.source_group_id` và `project_members.source_group_id` ghi lại
+> "người này có lộ trình/dự án **vì** thuộc nhóm X". Nhờ đó:
+> * ai vào nhóm **sau** vẫn nhận được mọi lộ trình + dự án của nhóm;
+> * rời nhóm chỉ thu hồi đúng phần đến từ nhóm, và **chỉ khi chưa động vào**.
+>
+> Trước đây `POST /roadmaps/{id}/assign-group` chỉ chép cho những ai có mặt lúc bấm
+> gán, nên người vào nhóm sau không nhận được lộ trình nào — đó là lỗi đã sửa.
+
 ### POST /groups/{id}/members — Thêm nhiều Intern vào nhóm
-Quyền: MENTOR.
+Quyền: MENTOR. Chạy trong 1 transaction. Bỏ qua id không tồn tại và người đã ở trong
+nhóm. Người mới **tự động kế thừa** mọi lộ trình + dự án đang gán cho nhóm.
 ```json
 // Request (thêm hàng loạt)
 { "user_ids": [12, 15, 18] }
 ```
-Response `200` trả danh sách thành viên mới. (Một Intern có thể thuộc nhiều nhóm — không báo lỗi nếu đã ở nhóm khác; chỉ chống trùng trong cùng nhóm.)
+```json
+// Response 200
+{ "members": [ { "id": 12, "full_name": "...", "email": "..." } ],
+  "added_count": 3, "skipped_existing": 0,
+  "inherited_roadmaps": 6, "inherited_projects": 3 }
+```
+(Một Intern có thể thuộc nhiều nhóm — không báo lỗi nếu đã ở nhóm khác; chỉ chống
+trùng trong cùng nhóm.)
 
 ### DELETE /groups/{id}/members/{user_id} — Kick một Intern khỏi nhóm
-Quyền: MENTOR. Response `204`.
+Quyền: MENTOR. Response `200`.
+
+Chỉ thu hồi lộ trình/dự án người đó có **vì thuộc nhóm này**, và **chỉ khi chưa có
+tiến độ**: đã hoàn thành bài học nào (lộ trình) hoặc đang được giao task (dự án) thì
+GIỮ LẠI và chuyển thành gán cá nhân (`source_group_id = NULL`). Rời nhóm không được
+phép xoá công sức đã bỏ ra. Lộ trình/dự án gán lẻ từ đầu thì không bị đụng tới.
+```json
+// Response 200
+{ "revoked_roadmaps": 2, "kept_roadmaps": 1, "revoked_projects": 1, "kept_projects": 0 }
+```
 
 ---
 
@@ -780,6 +806,19 @@ Quyền: MENTOR. Chạy trong 1 transaction, bỏ qua người đã ở trong d�
 ```
 Response `200` trả danh sách thành viên hiện tại.
 
+### POST /projects/{id}/members/group — Gán cả một NHÓM vào dự án
+Quyền: MENTOR. Đối xứng với `POST /roadmaps/{id}/assign-group`. Ghi
+`project_members.source_group_id` nên **ai vào nhóm sau này cũng tự vào dự án**.
+```json
+// Request
+{ "group_id": 3 }
+```
+```json
+// Response 200
+{ "added_count": 5, "skipped_existing": 1 }
+```
+`404` nếu dự án hoặc nhóm không tồn tại.
+
 ### DELETE /projects/{id}/members/{user_id} — Kick thành viên
 Quyền: MENTOR. Response `204`; `404` nếu user không phải thành viên.
 
@@ -961,6 +1000,7 @@ Response `200` (ghi nhận `reviewed_by`, `reviewer_name`, `reviewed_at`). Lỗi
 | PATCH | /projects/{id} | MENTOR | Sửa dự án |
 | DELETE | /projects/{id} | MENTOR | Xóa mềm dự án |
 | POST | /projects/{id}/members | MENTOR | Thêm nhiều thành viên |
+| POST | /projects/{id}/members/group | MENTOR | Gán cả một nhóm vào dự án |
 | DELETE | /projects/{id}/members/{user_id} | MENTOR | Kick thành viên |
 | GET | /tasks | INTERN (của mình)/MENTOR | Danh sách công việc |
 | POST | /tasks | MENTOR | Tạo công việc |
