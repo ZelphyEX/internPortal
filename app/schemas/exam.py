@@ -17,6 +17,7 @@ class ExamAttemptCreate(BaseModel):
     total_questions: int = Field(gt=0, le=500)
     correct_count: int = Field(ge=0, le=500)
     duration_seconds: int | None = Field(default=None, ge=0, le=24 * 3600)
+    mode: str = Field(default="exam", max_length=50)
 
 
 class ExamAttemptOut(BaseModel):
@@ -32,6 +33,7 @@ class ExamAttemptOut(BaseModel):
     score: int
     passed: bool
     duration_seconds: int | None = None
+    mode: str
     created_at: datetime
 
 

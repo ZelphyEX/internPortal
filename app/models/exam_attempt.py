@@ -55,6 +55,8 @@ class ExamAttempt(Base):
     passed: Mapped[bool] = mapped_column(Boolean, nullable=False)
     #: Số giây thực tế đã dùng (nếu client gửi). Giới hạn đề là 120 phút.
     duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: Chế độ làm bài: "exam" (thi thật) hoặc "practice" (luyện tập)
+    mode: Mapped[str] = mapped_column(String(50), default="exam", server_default="exam", nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False,
