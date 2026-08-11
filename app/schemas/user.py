@@ -1,7 +1,6 @@
 """User output/update schemas (shared by auth; extended by Dev B for /users)."""
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from app.models.enums import Department
 from app.models.user import Role, UserStatus
 
 
@@ -43,11 +42,11 @@ class UserProfileFields(BaseModel):
     Every field is optional and only meaningful for `role=INTERN`.
 
     Đã bỏ hẳn khỏi bảng `users`: `phone`, `university`, `mentor_id`, `start_date`,
-    `end_date` (migration d5c8a2e64f19) và `major` (migration e7a4b1d09c53).
+    `end_date` (migration d5c8a2e64f19), `major` (e7a4b1d09c53) và `department` —
+    Khối kỹ thuật (f1c6b83ad74e).
     """
     model_config = ConfigDict(from_attributes=True)
 
-    department: Department | None = None
     bio: str | None = None
     github_url: str | None = None
     score: float | None = None
@@ -86,7 +85,6 @@ class UserProfileUpdate(BaseModel):
     clears that field. Kept separate from `PATCH /auth/me`, which is how a user
     edits their *own* name/avatar.
     """
-    department: Department | None = None
     bio: str | None = None
     github_url: str | None = Field(default=None, max_length=512)
     score: float | None = Field(default=None, ge=0, le=100)

@@ -56,8 +56,8 @@ def get_user(user_id: int, db: DbSession, current_user: MentorRequired) -> UserO
 def update_user_profile(
     user_id: int, payload: UserProfileUpdate, db: DbSession, current_user: MentorRequired,
 ) -> UserOut:
-    """MENTOR/ADMIN. Update an intern's profile (department, mentor, dates,
-    school, score...). Send only the fields you want to change; an explicit
+    """MENTOR/ADMIN. Update an intern's profile (bio, github_url, score,
+    attendance_rate). Send only the fields you want to change; an explicit
     `null` clears one. To edit your own name/avatar use `PATCH /auth/me`."""
     target = svc.get_user(db, user_id)
     return svc.serialize_one(db, svc.update_profile(db, target, payload))

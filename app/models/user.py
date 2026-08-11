@@ -14,7 +14,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 from app.db.mixins import TimestampMixin
-from app.models.enums import DEPARTMENT_ENUM, Department, pg_enum
+from app.models.enums import pg_enum
 
 
 class Role(str, enum.Enum):
@@ -59,8 +59,9 @@ class User(TimestampMixin, Base):
     # MENTOR/ADMIN via PATCH /users/{id}/profile.
     # ----------------------------------------------------------------------- #
     # Đã bỏ khỏi bảng: phone, university, mentor_id, start_date, end_date
-    # (migration d5c8a2e64f19) và major (migration e7a4b1d09c53).
-    department: Mapped[Department | None] = mapped_column(DEPARTMENT_ENUM, nullable=True)
+    # (migration d5c8a2e64f19), major (e7a4b1d09c53) và department — Khối kỹ thuật
+    # (f1c6b83ad74e). Đừng thêm lại nếu không có form để nhập: cột chỉ toàn NULL thì
+    # frontend lại phải bịa ra giá trị mặc định để hiển thị.
     bio: Mapped[str | None] = mapped_column(Text, nullable=True)
     github_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     # Evaluation score and attendance rate (%), both 0..100.

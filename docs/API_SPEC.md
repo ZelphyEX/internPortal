@@ -220,15 +220,19 @@ Mọi response user của nhóm này (`GET /users`, `GET /users/{id}`, `POST /us
 
 | Field | Kiểu | Ghi chú |
 |---|---|---|
-| `department` | enum \| null | `Java Back-End` \| `React Front-End` \| `Cloud & DevOps` \| `Salesforce/ERP` \| `AI & Data Science` |
 | `bio` | string \| null | |
 | `github_url` | string \| null | |
 | `score`, `attendance_rate` | number (0..100) \| null | Điểm đánh giá / tỉ lệ chuyên cần (%) |
 
 > **Đã bỏ khỏi bảng `users`** (không còn trả về, gửi lên cũng bị bỏ qua):
 > `mentor_id` / `mentor_name` / `mentor_email` / `phone` / `start_date` / `end_date` /
-> `university` (migration `d5c8a2e64f19`) và `major` (migration `e7a4b1d09c53`).
-> Các trường này không còn hiển thị ở đâu trong portal.
+> `university` (migration `d5c8a2e64f19`), `major` (`e7a4b1d09c53`) và `department`
+> — Khối kỹ thuật (`f1c6b83ad74e`). Các trường này không còn hiển thị ở đâu trong portal.
+>
+> Riêng `department`: enum `department` VẪN TỒN TẠI, nhưng giờ chỉ còn là thuộc tính
+> của **Dự án** (`projects.department`) và **chặng lộ trình** (`modules.track`) — không
+> còn là thuộc tính của con người. Cột bị bỏ vì không có endpoint/form nào từng gán
+> nó, nên mọi tài khoản thật đều `null`.
 
 ### GET /users — Liệt kê, tìm kiếm, phân trang Intern
 Quyền: MENTOR.
@@ -238,7 +242,7 @@ Query: `?page=1&size=20&search=<tên hoặc email>&role=INTERN&status=ACTIVE`
 { "items": [
     { "id": 12, "full_name": "Nguyen Van A", "email": "a@example.com",
       "role": "INTERN", "status": "ACTIVE", "avatar_url": null,
-      "department": "React Front-End", "bio": "TTS FE",
+      "bio": "TTS FE",
       "github_url": "https://github.com/a", "score": 8.5, "attendance_rate": 96.5 }
   ], "total": 40, "page": 1, "size": 20, "pages": 2 }
 ```
@@ -258,11 +262,11 @@ Quyền: MENTOR. Response `200` trả thông tin user (kèm toàn bộ field h�
 Quyền: MENTOR. Chỉ sửa các field hồ sơ; **không** đổi `full_name`/`email`/`role`/`status` qua đây (tự sửa tên/ảnh của chính mình thì dùng `PATCH /auth/me`).
 ```json
 // Request — gửi field nào sửa field đó
-{ "department": "React Front-End", "bio": "TTS FE",
+{ "bio": "TTS FE",
   "github_url": "https://github.com/a", "score": 8.5, "attendance_rate": 96.5 }
 ```
 Response `200` trả user sau khi cập nhật.
-- Gửi `null` tường minh = **xóa** giá trị field đó (ví dụ `{"department": null}`).
+- Gửi `null` tường minh = **xóa** giá trị field đó (ví dụ `{"bio": null}`).
 - Lỗi `422`: `score`/`attendance_rate` ngoài khoảng 0..100.
 
 ### PATCH /users/{id}/lock — Khóa tài khoản
@@ -331,16 +335,21 @@ có đáp án nên không tự chấm lại được. Client gửi số câu đ�
 (client không gửi `score`).
 
 **Cách tính điểm** (`app/services/exam_service.py` — nguồn duy nhất):
-- Thang chuẩn hoá **100 – 1000**: `score = round(100 + correct/total * 900)`.
-- Đỗ: **>= 720**.
+- **Chia đều mọi câu**, không có trọng số theo độ khó (dữ liệu đề không có trường đó).
+- Thang **0 – 1000**: `score = round(correct/total * 1000)` — tức phần trăm nhân 10.
+- Đỗ khi đúng **>= 80%** số câu. So sánh trên SỐ CÂU (`correct*100 >= total*80`), không
+  so trên điểm đã làm tròn: nếu so `score >= 800` thì 79,96% làm tròn thành 800 sẽ đỗ oan.
 - Đề: 60 câu trắc nghiệm (một hoặc nhiều đáp án), 120 phút. Câu đúng phải khớp
   **chính xác** tập đáp án đúng.
-- ⚠️ Đặc tả nói tính theo "độ khó và trọng số từng câu" nhưng dữ liệu đề hiện tại
-  KHÔNG có trường độ khó/trọng số — mọi câu đang tính như nhau. Khi đề bổ sung trường
-  đó chỉ cần sửa `scaled_score()`.
 
 Chỉ bài làm ở **chế độ thi** mới được nộp; chế độ luyện tập không ghi nhận.
 "Điểm của một đề" = điểm **cao nhất** trong các lần làm đề đó.
+
+**Điểm gắn với `user_id`, không gắn với email.** Xoá tài khoản là xoá mềm rồi đổi tên
+email cũ (`auth_service.delete_self`), nên đăng nhập lại bằng đúng email đó sinh ra một
+tài khoản **mới** với `id` mới và **không có lần thi nào**. Frontend vì vậy KHÔNG được
+đệm điểm trong `localStorage` theo email — làm thế thì điểm của tài khoản đã xoá hiện
+lại trên tài khoản mới, trong khi Mentor gọi API lại thấy trống.
 
 ### POST /exam-attempts — Nộp kết quả một lần thi
 Quyền: INTERN/MENTOR.

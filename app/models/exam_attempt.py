@@ -49,9 +49,9 @@ class ExamAttempt(Base):
 
     total_questions: Mapped[int] = mapped_column(Integer, nullable=False)
     correct_count: Mapped[int] = mapped_column(Integer, nullable=False)
-    #: Điểm quy đổi 100..1000 — server tính, xem exam_service.scaled_score().
+    #: Điểm quy đổi 0..1000 — server tính, xem exam_service.scaled_score().
     score: Mapped[int] = mapped_column(Integer, nullable=False)
-    #: score >= PASSING_SCORE (720). Lưu sẵn để truy vấn/thống kê khỏi tính lại.
+    #: Đúng >= 80% số câu (exam_service.is_passing). Lưu sẵn để thống kê khỏi tính lại.
     passed: Mapped[bool] = mapped_column(Boolean, nullable=False)
     #: Số giây thực tế đã dùng (nếu client gửi). Giới hạn đề là 120 phút.
     duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
