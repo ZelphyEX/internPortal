@@ -27,6 +27,21 @@ class Document(TimestampMixin, Base):
         SAEnum(DocumentType, name="document_type", values_callable=lambda e: [m.value for m in e]),
         nullable=False,
     )
+    # ----------------------------------------------------------------------- #
+    # Metadata của Thư viện Tài liệu (migration a92f4c17be60).
+    #
+    # Vì sao cần ba cột này: `type` chỉ có 4 giá trị (VIDEO/PDF/LINK/ARTICLE) nên
+    # KHÔNG biểu diễn được định dạng thật mà frontend hiển thị (PDF/DOCX/SLIDE/MD) —
+    # DOCX và MD đều bị dồn về ARTICLE rồi quay ra sai. Danh mục và dung lượng thì
+    # trước đây không được lưu ở đâu cả, nên tải lại trang là mất sạch.
+    # ----------------------------------------------------------------------- #
+    #: Danh mục trong Thư viện ("Onboarding", "AI", "Coding Standard"...).
+    category: Mapped[str | None] = mapped_column(String(100), index=True, nullable=True)
+    #: Định dạng file thật do frontend suy ra từ đuôi file: PDF | DOCX | SLIDE | MD.
+    file_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    #: Kích thước file (byte) lấy từ `File.size`; frontend tự đổi sang KB/MB.
+    file_size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
     # Soft delete (mục 6 CLAUDE.md — xóa document là soft delete).
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

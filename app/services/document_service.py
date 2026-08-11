@@ -17,9 +17,31 @@ def to_out(doc: Document) -> DocumentOut:
         description=doc.description,
         content_url=doc.content_url,
         type=doc.type,
+        category=doc.category,
+        file_type=doc.file_type,
+        file_size_bytes=doc.file_size_bytes,
         tags=[t.name for t in doc.tags],
         created_at=doc.created_at,
     )
+
+
+def _tags_for(db: Session, tag_ids: list[int], tag_names: list[str]) -> list[Tag]:
+    """Gộp tag theo id và theo tên. Tên chưa có thì tạo mới (không phân biệt hoa
+    thường ở phần so khớp) — nhờ vậy client chỉ cần gửi tên, khỏi gọi POST /tags."""
+    tags = list(_resolve_tags(db, tag_ids))
+    seen = {t.name.lower() for t in tags}
+    for raw in tag_names:
+        name = raw.strip()
+        if not name or name.lower() in seen:
+            continue
+        tag = db.scalar(select(Tag).where(Tag.name == name))
+        if tag is None:
+            tag = Tag(name=name)
+            db.add(tag)
+            db.flush()  # cần id trước khi gắn vào document_tags
+        tags.append(tag)
+        seen.add(name.lower())
+    return tags
 
 
 def list_query(
@@ -50,8 +72,11 @@ def create_document(db: Session, data: DocumentCreate) -> Document:
         description=data.description,
         content_url=data.content_url,
         type=data.type,
+        category=data.category,
+        file_type=data.file_type,
+        file_size_bytes=data.file_size_bytes,
     )
-    doc.tags = _resolve_tags(db, data.tag_ids)
+    doc.tags = _tags_for(db, data.tag_ids, data.tag_names)
     db.add(doc)
     db.commit()
     db.refresh(doc)
@@ -60,8 +85,11 @@ def create_document(db: Session, data: DocumentCreate) -> Document:
 
 def update_document(db: Session, doc: Document, data: DocumentUpdate) -> Document:
     fields = data.model_dump(exclude_unset=True)
-    if "tag_ids" in fields:  # present (even []) -> replace tag links
-        doc.tags = _resolve_tags(db, fields.pop("tag_ids") or [])
+    # tag_ids / tag_names có mặt (kể cả []) -> thay toàn bộ tag của tài liệu.
+    if "tag_ids" in fields or "tag_names" in fields:
+        doc.tags = _tags_for(
+            db, fields.pop("tag_ids", None) or [], fields.pop("tag_names", None) or [],
+        )
     for key, value in fields.items():
         setattr(doc, key, value)
     db.commit()
