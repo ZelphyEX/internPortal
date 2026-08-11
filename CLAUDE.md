@@ -77,7 +77,9 @@ Cho phép **CORS** để frontend (chạy ở origin/domain khác) gọi đượ
 Kiểu dữ liệu: `id` = BigInteger PK auto-increment. Mọi bảng có `created_at`, và bảng nào sửa được thì có `updated_at` (đều `TIMESTAMPTZ`, UTC).
 
 - **users**: `id`, `full_name`, `email` (UNIQUE), `password_hash`, `role` ENUM(`ADMIN`,`MENTOR`,`INTERN`) default `INTERN`, `status` ENUM(`ACTIVE`,`LOCKED`) default `ACTIVE`, `avatar_url` (nullable), `deleted_at` (nullable — soft delete), `created_at`, `updated_at`.
-  - Hồ sơ Intern (tất cả nullable, chỉ có ý nghĩa với `role=INTERN` — sửa qua `PATCH /users/{id}/profile`, quyền MENTOR): `department` ENUM `department`, `mentor_id` → users (self-FK, phải là MENTOR/ADMIN), `phone`, `start_date`, `end_date` (DATE), `university`, `major`, `bio`, `github_url`, `score` NUMERIC(5,2), `attendance_rate` NUMERIC(5,2).
+  - Hồ sơ Intern (tất cả nullable, chỉ có ý nghĩa với `role=INTERN` — sửa qua `PATCH /users/{id}/profile`, quyền MENTOR): `department` ENUM `department`, `bio`, `github_url`, `score` NUMERIC(5,2), `attendance_rate` NUMERIC(5,2).
+    - **Đã bỏ khỏi bảng**: `mentor_id`, `phone`, `start_date`, `end_date`, `university` (migration `d5c8a2e64f19`) và `major` (`e7a4b1d09c53`). Đừng thêm lại nếu không có yêu cầu rõ ràng.
+    - Tài khoản **chỉ sinh ra từ luồng Đăng nhập bằng Google**; portal không còn màn "Thêm Thực tập sinh". `POST /users` vẫn giữ cho thao tác quản trị qua Swagger.
   - ENUM **`department`** (dùng chung cho `users.department`, `modules.track`, `projects.department`): `Java Back-End`, `React Front-End`, `Cloud & DevOps`, `Salesforce/ERP`, `AI & Data Science`. Giá trị enum = đúng nhãn frontend hiển thị (đã chốt với FE) → không cần lớp map.
 - **refresh_tokens**: `id`, `user_id` → users, `token_hash` (LƯU HASH, không lưu token thô), `expires_at`, `revoked_at` (nullable), `created_at`.
 - **groups**: `id`, `name`, `cohort` (nullable), `description` (nullable), `created_at`, `updated_at`.

@@ -42,14 +42,12 @@ class UserProfileFields(BaseModel):
 
     Every field is optional and only meaningful for `role=INTERN`.
 
-    Khối "Thông tin Hành chính & Đào tạo" (`phone`, `university`, `mentor_id`,
-    `start_date`, `end_date`) đã bị bỏ hẳn khỏi bảng `users` — xem migration
-    d5c8a2e64f19.
+    Đã bỏ hẳn khỏi bảng `users`: `phone`, `university`, `mentor_id`, `start_date`,
+    `end_date` (migration d5c8a2e64f19) và `major` (migration e7a4b1d09c53).
     """
     model_config = ConfigDict(from_attributes=True)
 
     department: Department | None = None
-    major: str | None = None
     bio: str | None = None
     github_url: str | None = None
     score: float | None = None
@@ -89,7 +87,6 @@ class UserProfileUpdate(BaseModel):
     edits their *own* name/avatar.
     """
     department: Department | None = None
-    major: str | None = Field(default=None, max_length=255)
     bio: str | None = None
     github_url: str | None = Field(default=None, max_length=512)
     score: float | None = Field(default=None, ge=0, le=100)

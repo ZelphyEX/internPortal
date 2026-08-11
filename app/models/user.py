@@ -58,10 +58,9 @@ class User(TimestampMixin, Base):
     # All nullable: only meaningful for role=INTERN, and filled in by a
     # MENTOR/ADMIN via PATCH /users/{id}/profile.
     # ----------------------------------------------------------------------- #
-    # Khối "Thông tin Hành chính & Đào tạo" (phone, university, mentor_id,
-    # start_date, end_date) đã bị bỏ khỏi bảng — xem migration d5c8a2e64f19.
+    # Đã bỏ khỏi bảng: phone, university, mentor_id, start_date, end_date
+    # (migration d5c8a2e64f19) và major (migration e7a4b1d09c53).
     department: Mapped[Department | None] = mapped_column(DEPARTMENT_ENUM, nullable=True)
-    major: Mapped[str | None] = mapped_column(String(255), nullable=True)
     bio: Mapped[str | None] = mapped_column(Text, nullable=True)
     github_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     # Evaluation score and attendance rate (%), both 0..100.

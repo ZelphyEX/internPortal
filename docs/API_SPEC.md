@@ -221,14 +221,14 @@ Mọi response user của nhóm này (`GET /users`, `GET /users/{id}`, `POST /us
 | Field | Kiểu | Ghi chú |
 |---|---|---|
 | `department` | enum \| null | `Java Back-End` \| `React Front-End` \| `Cloud & DevOps` \| `Salesforce/ERP` \| `AI & Data Science` |
-| `mentor_id` | number \| null | Mentor phụ trách; phải là tài khoản MENTOR/ADMIN |
-| `mentor_name`, `mentor_email` | string \| null | Backend tự resolve từ `mentor_id` (read-only) |
-| `phone` | string \| null | |
-| `start_date`, `end_date` | date (`YYYY-MM-DD`) \| null | Thời gian thực tập |
-| `university`, `major` | string \| null | |
 | `bio` | string \| null | |
 | `github_url` | string \| null | |
 | `score`, `attendance_rate` | number (0..100) \| null | Điểm đánh giá / tỉ lệ chuyên cần (%) |
+
+> **Đã bỏ khỏi bảng `users`** (không còn trả về, gửi lên cũng bị bỏ qua):
+> `mentor_id` / `mentor_name` / `mentor_email` / `phone` / `start_date` / `end_date` /
+> `university` (migration `d5c8a2e64f19`) và `major` (migration `e7a4b1d09c53`).
+> Các trường này không còn hiển thị ở đâu trong portal.
 
 ### GET /users — Liệt kê, tìm kiếm, phân trang Intern
 Quyền: MENTOR.
@@ -238,10 +238,7 @@ Query: `?page=1&size=20&search=<tên hoặc email>&role=INTERN&status=ACTIVE`
 { "items": [
     { "id": 12, "full_name": "Nguyen Van A", "email": "a@example.com",
       "role": "INTERN", "status": "ACTIVE", "avatar_url": null,
-      "department": "React Front-End", "mentor_id": 2, "mentor_name": "Mentor B",
-      "mentor_email": "b@example.com", "phone": "0900000001",
-      "start_date": "2026-07-01", "end_date": "2026-09-30",
-      "university": "HUST", "major": "CNTT", "bio": "TTS FE",
+      "department": "React Front-End", "bio": "TTS FE",
       "github_url": "https://github.com/a", "score": 8.5, "attendance_rate": 96.5 }
   ], "total": 40, "page": 1, "size": 20, "pages": 2 }
 ```
@@ -261,14 +258,11 @@ Quyền: MENTOR. Response `200` trả thông tin user (kèm toàn bộ field h�
 Quyền: MENTOR. Chỉ sửa các field hồ sơ; **không** đổi `full_name`/`email`/`role`/`status` qua đây (tự sửa tên/ảnh của chính mình thì dùng `PATCH /auth/me`).
 ```json
 // Request — gửi field nào sửa field đó
-{ "department": "React Front-End", "mentor_id": 2, "phone": "0900000001",
-  "start_date": "2026-07-01", "end_date": "2026-09-30",
-  "university": "HUST", "major": "CNTT", "bio": "TTS FE",
+{ "department": "React Front-End", "bio": "TTS FE",
   "github_url": "https://github.com/a", "score": 8.5, "attendance_rate": 96.5 }
 ```
 Response `200` trả user sau khi cập nhật.
-- Gửi `null` tường minh = **xóa** giá trị field đó (ví dụ `{"mentor_id": null}` để bỏ mentor).
-- Lỗi `400`: `mentor_id` không tồn tại / không phải MENTOR-ADMIN / trỏ vào chính user đó; `end_date` < `start_date`.
+- Gửi `null` tường minh = **xóa** giá trị field đó (ví dụ `{"department": null}`).
 - Lỗi `422`: `score`/`attendance_rate` ngoài khoảng 0..100.
 
 ### PATCH /users/{id}/lock — Khóa tài khoản
