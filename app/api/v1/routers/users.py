@@ -13,7 +13,13 @@ from app.core.pagination import (
 )
 from app.models.user import Role, UserStatus
 from app.schemas.common import Page
-from app.schemas.user import UserCreate, UserListItem, UserOut, UserProfileUpdate
+from app.schemas.user import (
+    UserCreate,
+    UserListItem,
+    UserOut,
+    UserProfileUpdate,
+    UserRoleUpdate,
+)
 from app.services import user_service as svc
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -61,6 +67,25 @@ def update_user_profile(
     `null` clears one. To edit your own name/avatar use `PATCH /auth/me`."""
     target = svc.get_user(db, user_id)
     return svc.serialize_one(db, svc.update_profile(db, target, payload))
+
+
+@router.patch("/{user_id}/role", response_model=UserOut)
+def set_user_role(
+    user_id: int, payload: UserRoleUpdate, db: DbSession, current_user: AdminRequired,
+) -> UserOut:
+    """ADMIN only. Đổi vai trò một tài khoản: `INTERN` <-> `MENTOR`, cả hai chiều.
+
+    Đây là đường Admin TỰ TAY đặt vai trò, không cần người dùng xin trước (khác
+    `/role-requests`). Nếu người đó đang có một yêu cầu chuyển vai trò chờ duyệt thì
+    yêu cầu đó được đóng luôn trong cùng transaction, khỏi kẹt lại trong hàng đợi.
+
+    Lỗi: `400` nếu đổi vai trò của chính mình / đích đã mang vai trò đó / `role`
+    không phải INTERN|MENTOR. `403` nếu đích là ADMIN. `404` nếu không có user.
+    """
+    target = svc.get_user(db, user_id)
+    return svc.serialize_one(
+        db, svc.set_role(db, target, payload.role, actor=current_user)
+    )
 
 
 @router.patch("/{user_id}/lock", response_model=UserOut)

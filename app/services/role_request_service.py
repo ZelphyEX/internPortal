@@ -174,3 +174,30 @@ def reject(db: Session, req: RoleChangeRequest, admin: User) -> RoleRequestOut:
     db.commit()
     db.refresh(req)
     return serialize(req)
+
+
+def settle_pending_for_user(
+    db: Session, user_id: int, new_role: Role, admin: User,
+) -> None:
+    """Đóng yêu cầu đang chờ của một người khi ADMIN vừa TỰ TAY đổi vai trò họ.
+
+    Không có bước này thì yêu cầu cũ vẫn nằm trong hàng đợi sau khi vai trò đã đổi
+    xong — Admin thấy một yêu cầu "xin lên Mentor" của người đã là Mentor, bấm duyệt
+    thì không có tác dụng gì, và badge ở thanh bên đếm sai.
+
+    Xin đúng thứ vừa được cấp thì coi như ĐƯỢC DUYỆT; còn lại thì HUỶ (yêu cầu không
+    còn ý nghĩa). Cả hai đều không đổi vai trò lần nữa — người gọi đã đổi rồi.
+
+    KHÔNG commit: hàm này chạy chung transaction với `user_service.set_role`, để vai
+    trò và hàng đợi luôn khớp nhau kể cả khi có lỗi ở giữa.
+    """
+    req = get_pending_for_user(db, user_id)
+    if req is None:
+        return
+    req.status = (
+        RoleRequestStatus.APPROVED
+        if req.to_role == new_role
+        else RoleRequestStatus.CANCELLED
+    )
+    req.decided_by = admin.id
+    req.decided_at = _now()

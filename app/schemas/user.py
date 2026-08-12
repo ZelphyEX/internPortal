@@ -91,6 +91,15 @@ class UserProfileUpdate(BaseModel):
     attendance_rate: float | None = Field(default=None, ge=0, le=100)
 
 
+class UserRoleUpdate(BaseModel):
+    """PATCH /users/{id}/role request (ADMIN).
+
+    Chỉ nhận `INTERN` hoặc `MENTOR` — service từ chối mọi giá trị khác, kể cả
+    `ADMIN` (vai trò Quản trị viên không cấp qua API).
+    """
+    role: Role
+
+
 class UserCreate(BaseModel):
     """POST /users request.
 

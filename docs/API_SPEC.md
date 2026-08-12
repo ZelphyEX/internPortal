@@ -269,6 +269,25 @@ Response `200` trả user sau khi cập nhật.
 - Gửi `null` tường minh = **xóa** giá trị field đó (ví dụ `{"bio": null}`).
 - Lỗi `422`: `score`/`attendance_rate` ngoài khoảng 0..100.
 
+### PATCH /users/{id}/role — Đổi vai trò một tài khoản (INTERN ↔ MENTOR)
+Quyền: **ADMIN**. Đây là đường Admin **tự tay** đặt vai trò cho người khác — khác
+`/role-requests` ở mục 3b, nơi người dùng phải tự xin trước rồi Admin mới duyệt.
+```json
+// Request
+{ "role": "MENTOR" }
+```
+Response `200` trả user sau khi đổi.
+- Chỉ nhận `INTERN` hoặc `MENTOR`, đổi được **cả hai chiều**.
+- Tài khoản đang `PENDING` được kích hoạt luôn (`status = ACTIVE`): Admin đã tự quyết
+  định vai trò thì không còn gì để duyệt.
+- Nếu người đó đang có một yêu cầu chuyển vai trò `PENDING`, yêu cầu đó được đóng
+  **trong cùng transaction**: `APPROVED` nếu xin đúng vai trò vừa được cấp, `CANCELLED`
+  nếu không. Nhờ vậy hàng đợi của Admin không kẹt lại bản ghi đã mất ý nghĩa.
+- Lỗi: `400` khi đổi vai trò của chính mình, khi đích đã mang đúng vai trò đó, hoặc
+  khi `role` không phải INTERN|MENTOR. `403` khi đích là ADMIN (vai trò Quản trị viên
+  không cấp/không hạ qua API — dùng `scripts/create_user.py`). `404` khi không có user.
+- Người bị đổi vai trò cần gọi lại `GET /auth/me` để giao diện của họ khớp vai trò mới.
+
 ### PATCH /users/{id}/lock — Khóa tài khoản
 Quyền: MENTOR. Đặt `status = LOCKED`. Response `200`.
 
@@ -282,8 +301,10 @@ Quyền: ADMIN. Đặt `deleted_at`, không xóa khỏi DB. Response `204`.
 
 ## 3b. Nhóm API: Yêu cầu chuyển vai trò (Intern ↔ Mentor)
 
-Vai trò được cấp theo tên miền email lúc đăng ký, nên đây là cách duy nhất để đổi
-vai trò về sau. Bảng `role_change_requests` có **unique index có điều kiện** trên
+Đây là đường **người dùng tự xin** đổi vai trò. Admin muốn tự tay đặt vai trò cho ai
+đó mà không cần họ xin thì dùng `PATCH /users/{id}/role` ở mục 3.
+
+Bảng `role_change_requests` có **unique index có điều kiện** trên
 `user_id WHERE status='PENDING'` → mỗi người tối đa một yêu cầu đang chờ.
 
 Luật:
@@ -966,6 +987,7 @@ Response `200` (ghi nhận `reviewed_by`, `reviewer_name`, `reviewed_at`). Lỗi
 | POST | /users | ADMIN | Tạo mentor/admin |
 | GET | /users/{id} | MENTOR | Chi tiết user |
 | PATCH | /users/{id}/profile | MENTOR | Cập nhật hồ sơ Intern |
+| PATCH | /users/{id}/role | ADMIN | Đổi vai trò một tài khoản (INTERN ↔ MENTOR) |
 | PATCH | /users/{id}/lock | MENTOR | Khóa tài khoản |
 | PATCH | /users/{id}/unlock | MENTOR | Mở khóa |
 | PATCH | /users/{id}/approve | ADMIN | Duyệt tài khoản Mentor chờ duyệt |

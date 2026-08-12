@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.core import security
 from app.models.user import Role, User, UserStatus
 from app.schemas.user import UserCreate, UserListItem, UserOut, UserProfileUpdate
+from app.services import role_request_service
 
 
 def _now() -> datetime:
@@ -140,6 +141,62 @@ def set_status(db: Session, target: User, new_status: UserStatus, actor: User) -
         )
     _assert_can_manage(actor, target.role, "khoá/mở khoá")
     target.status = new_status
+    db.commit()
+    db.refresh(target)
+    return target
+
+
+#: Hai vai trò mà ADMIN được phép chuyển qua lại bằng `set_role`.
+SWITCHABLE_ROLES = (Role.INTERN, Role.MENTOR)
+
+
+def set_role(db: Session, target: User, new_role: Role, actor: User) -> User:
+    """ADMIN đổi vai trò của một tài khoản: INTERN <-> MENTOR (cả hai chiều).
+
+    Khác với `/role-requests` (người dùng tự xin, Admin duyệt), đây là đường Admin
+    tự tay đặt vai trò cho người khác — không cần ai xin trước.
+
+    Từ chối (400/403):
+      * `new_role` không phải INTERN/MENTOR — vai trò ADMIN không cấp qua API,
+        dùng `scripts/create_user.py`.
+      * Tài khoản đích đang là ADMIN — không hạ quyền Quản trị viên qua API, để
+        không có đường nào làm hệ thống mất sạch quản trị viên.
+      * Đổi vai trò của chính mình — Admin tự hạ quyền là tự khoá mình khỏi khu
+        quản trị. (Thực ra đã bị chặn bởi luật trên vì actor luôn là ADMIN, nhưng
+        kiểm tra tường minh cho thông báo lỗi dễ hiểu.)
+      * Đích đã mang đúng vai trò đó rồi.
+
+    Tài khoản đang PENDING (Mentor cũ chờ duyệt) được kích hoạt luôn: Admin đã tự
+    tay quyết định vai trò thì không còn gì để duyệt nữa.
+    """
+    if new_role not in SWITCHABLE_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Chỉ chuyển được giữa Thực tập sinh và Mentor.",
+        )
+    if target.id == actor.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Bạn không thể tự đổi vai trò của chính mình.",
+        )
+    if target.role == Role.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Không thể đổi vai trò của tài khoản Quản trị viên.",
+        )
+    if target.role == new_role:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Tài khoản này đang là {new_role.value} rồi.",
+        )
+
+    target.role = new_role
+    if target.status == UserStatus.PENDING:
+        target.status = UserStatus.ACTIVE
+
+    # Cùng transaction: vai trò và hàng đợi yêu cầu không được lệch nhau.
+    role_request_service.settle_pending_for_user(db, target.id, new_role, actor)
+
     db.commit()
     db.refresh(target)
     return target
