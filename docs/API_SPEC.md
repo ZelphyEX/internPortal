@@ -497,12 +497,14 @@ phép xoá công sức đã bỏ ra. Lộ trình/dự án gán lẻ từ đầu 
 
 ## 5. Nhóm API: Tài liệu (Documents) & Tags
 
-> **Metadata Thư viện Tài liệu** (migration `a92f4c17be60`): `category`, `file_type`,
-> `file_size_bytes`. Ba trường này BẮT BUỘC phải gửi khi tạo tài liệu, nếu không tải
-> lại trang là mất — `type` (chỉ 4 giá trị) không biểu diễn được định dạng thật mà
-> giao diện hiển thị (`PDF`/`DOCX`/`SLIDE`/`MD`: DOCX và MD đều dồn về `ARTICLE`), và
-> danh mục/dung lượng thì trước đây không có chỗ lưu nào cả. Cả ba đều nullable nên
-> tài liệu tạo trước migration vẫn đọc được (client suy ngược từ `type`).
+> **Metadata Thư viện Tài liệu** (migration `a92f4c17be60`, `categories` đổi sang
+> mảng ở `c5165ac2fbcd`): `categories`, `file_type`, `file_size_bytes`. Ba trường
+> này BẮT BUỘC phải gửi khi tạo tài liệu, nếu không tải lại trang là mất — `type`
+> (chỉ 4 giá trị) không biểu diễn được định dạng thật mà giao diện hiển thị
+> (`PDF`/`DOCX`/`SLIDE`/`MD`: DOCX và MD đều dồn về `ARTICLE`), và danh mục/dung
+> lượng thì trước đây không có chỗ lưu nào cả. `file_type`/`file_size_bytes` nullable
+> nên tài liệu tạo trước migration vẫn đọc được (client suy ngược từ `type`);
+> `categories` không nullable, mặc định `[]`.
 
 ### GET /documents — Danh sách tài liệu (lọc theo tag, tìm kiếm, phân trang)
 Quyền: INTERN (chỉ xem) / MENTOR.
@@ -510,7 +512,7 @@ Query: `?page=1&size=20&search=<tiêu đề>&tag=git&type=PDF`
 ```json
 // Response 200 (item)
 { "id": 5, "title": "Git cơ bản", "description": "...", "content_url": "https://.../git.pdf",
-  "type": "PDF", "category": "Coding Standard", "file_type": "PDF",
+  "type": "PDF", "categories": ["Coding Standard", "Onboarding"], "file_type": "PDF",
   "file_size_bytes": 865280, "tags": ["git", "cơ bản"],
   "created_at": "2026-07-01T00:00:00Z" }
 ```
@@ -520,22 +522,26 @@ Quyền: MENTOR.
 ```json
 // Request — `tag_names` tiện hơn `tag_ids`: tag chưa có thì server tự tạo
 { "title": "Git cơ bản", "description": "Bài mở đầu", "content_url": "https://.../git.pdf",
-  "type": "PDF", "category": "Coding Standard", "file_type": "PDF",
+  "type": "PDF", "categories": ["Coding Standard"], "file_type": "PDF",
   "file_size_bytes": 865280, "tag_names": ["git", "cơ bản"] }
 ```
 Response `201`. (`type`: `VIDEO` | `PDF` | `LINK` | `ARTICLE`;
 `file_type`: `PDF` | `DOCX` | `SLIDE` | `MD`.)
 
-Danh mục frontend đang dùng: `CCA-F Certificate`, `Coding Standard`, `Onboarding`,
-`Architecture`, `Template`, `AI`. Cột `category` là chuỗi tự do nên thêm danh mục mới
-chỉ cần sửa `DOC_CATEGORIES` ở `KnowledgeBaseView.tsx`, không phải migration.
+Danh mục frontend đang dùng: `CCA-F Certificate`, `CCDV-F Certificate`, `Coding
+Standard`, `Onboarding`, `Architecture`, `Template`, `AI`. Cột `categories` là mảng
+string tự do (không enum) nên thêm danh mục mới chỉ cần sửa `DOC_CATEGORIES` ở
+`KnowledgeBaseView.tsx`, không phải migration. Một tài liệu gán được nhiều danh
+mục cùng lúc; không gửi `categories` = tài liệu không thuộc danh mục nào (`[]`),
+khác với "chưa chọn xong".
 
 ### GET /documents/{id} — Chi tiết tài liệu
 Quyền: INTERN/MENTOR. Response `200`.
 
 ### PATCH /documents/{id} — Sửa tài liệu
-Quyền: MENTOR. Gửi `tag_ids` hoặc `tag_names` (kể cả `[]`) để gán lại toàn bộ tags.
-Response `200`.
+Quyền: MENTOR. Gửi `tag_ids`/`tag_names` (kể cả `[]`) để gán lại toàn bộ tags; gửi
+`categories` (kể cả `[]`) để gán lại toàn bộ danh mục — không có kiểu "thêm/bớt một
+phần tử", mỗi lần gửi là THAY TOÀN BỘ danh sách. Response `200`.
 
 ### DELETE /documents/{id} — Xóa tài liệu
 Quyền: MENTOR. Response `204`.

@@ -17,7 +17,7 @@ def to_out(doc: Document) -> DocumentOut:
         description=doc.description,
         content_url=doc.content_url,
         type=doc.type,
-        category=doc.category,
+        categories=doc.categories,
         file_type=doc.file_type,
         file_size_bytes=doc.file_size_bytes,
         tags=[t.name for t in doc.tags],
@@ -72,7 +72,7 @@ def create_document(db: Session, data: DocumentCreate) -> Document:
         description=data.description,
         content_url=data.content_url,
         type=data.type,
-        category=data.category,
+        categories=data.categories,
         file_type=data.file_type,
         file_size_bytes=data.file_size_bytes,
     )

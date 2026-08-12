@@ -2,7 +2,8 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, Enum as SAEnum, ForeignKey, String, Text
+from sqlalchemy import BigInteger, DateTime, Enum as SAEnum, ForeignKey, String, Text, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -35,8 +36,14 @@ class Document(TimestampMixin, Base):
     # DOCX và MD đều bị dồn về ARTICLE rồi quay ra sai. Danh mục và dung lượng thì
     # trước đây không được lưu ở đâu cả, nên tải lại trang là mất sạch.
     # ----------------------------------------------------------------------- #
-    #: Danh mục trong Thư viện ("Onboarding", "AI", "Coding Standard"...).
-    category: Mapped[str | None] = mapped_column(String(100), index=True, nullable=True)
+    #: Danh mục trong Thư viện ("Onboarding", "AI", "Coding Standard"...). Một
+    #: tài liệu gán được NHIỀU danh mục cùng lúc (migration c5165ac2fbcd) — cùng
+    #: khuôn với `Module.key_skills`: mảng string, thay toàn bộ mỗi lần sửa.
+    #: Không tách bảng phụ như `tags` vì đây là tập cố định do frontend định
+    #: nghĩa (`DOC_CATEGORIES`), không cần tra cứu/đếm số lượng dùng.
+    categories: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"),
+    )
     #: Định dạng file thật do frontend suy ra từ đuôi file: PDF | DOCX | SLIDE | MD.
     file_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
     #: Kích thước file (byte) lấy từ `File.size`; frontend tự đổi sang KB/MB.
