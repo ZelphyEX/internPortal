@@ -18,6 +18,9 @@ class ExamAttemptCreate(BaseModel):
     correct_count: int = Field(ge=0, le=500)
     duration_seconds: int | None = Field(default=None, ge=0, le=24 * 3600)
     mode: str = Field(default="exam", max_length=50)
+    #: Đáp án đã chọn theo từng câu — {"<số câu>": ["A", "C"]} — để xem lại sau
+    #: này (đề/đáp án đúng/lời giải thích vẫn tĩnh ở frontend, không gửi lên).
+    answers: dict[str, list[str]] | None = Field(default=None)
 
 
 class ExamAttemptOut(BaseModel):
@@ -34,6 +37,8 @@ class ExamAttemptOut(BaseModel):
     passed: bool
     duration_seconds: int | None = None
     mode: str
+    #: `None` cho các lần thi trước khi có cột này — không xem lại chi tiết được.
+    answers: dict[str, list[str]] | None = None
     created_at: datetime
 
 

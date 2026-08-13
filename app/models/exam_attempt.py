@@ -22,6 +22,7 @@ from sqlalchemy import (
     String,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -57,6 +58,11 @@ class ExamAttempt(Base):
     duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     #: Chế độ làm bài: "exam" (thi thật) hoặc "practice" (luyện tập)
     mode: Mapped[str] = mapped_column(String(50), default="exam", server_default="exam", nullable=False)
+    #: Đáp án đã chọn theo từng câu — {"<số câu>": ["A", "C"]} — để xem lại sau này.
+    #: Nullable: các lần thi TRƯỚC khi có cột này sẽ không có dữ liệu để xem lại.
+    #: Đề (câu hỏi/đáp án đúng/lời giải thích) vẫn nằm ở frontend, cột này chỉ lưu
+    #: LỰA CHỌN của người thi để đối chiếu lại với đề tĩnh đó khi xem lại.
+    answers: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False,

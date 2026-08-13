@@ -28,6 +28,39 @@ if settings.STORAGE_BACKEND.lower() == "local":
     _local_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/files", StaticFiles(directory=_local_dir), name="files")
 
+# Bắt mọi exception không lường trước (vd lỗi DB) để trả JSON 500 thay vì để
+# Starlette's ServerErrorMiddleware xử lý mặc định.
+#
+# QUAN TRỌNG: phải là middleware HTTP thường (@app.middleware("http")), KHÔNG
+# phải @app.exception_handler(Exception) — Starlette đặc cách handler đăng ký
+# cho key `Exception`/500 làm `error_handler` của ServerErrorMiddleware (xem
+# Starlette.build_middleware_stack), mà ServerErrorMiddleware LUÔN nằm NGOÀI
+# CORSMiddleware bất kể handler đó là gì. Middleware bên dưới bắt exception
+# TRƯỚC khi nó bay tới ServerErrorMiddleware, trả response ngay tại đây — response
+# này đi ra qua CORSMiddleware như bình thường nên có đủ header. Thiếu header là
+# trình duyệt chặn response, JS thấy "network error" y hệt mất mạng dù server đã
+# xử lý xong (chỉ là bị lỗi) — người dùng lẫn Mentor debug tưởng nhầm là lỗi mạng.
+#
+# Đăng ký middleware này TRƯỚC CORSMiddleware: Starlette xếp middleware đăng ký
+# sau cùng ra ngoài cùng, nên CORSMiddleware (đăng ký sau) bọc ngoài middleware
+# này (đăng ký trước) — đúng thứ tự cần.
+@app.middleware("http")
+async def catch_unhandled_exceptions(request: Request, call_next):
+    try:
+        return await call_next(request)
+    except Exception:
+        logger.error(
+            "Unhandled exception on %s %s\n%s",
+            request.method,
+            request.url.path,
+            traceback.format_exc(),
+        )
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Đã xảy ra lỗi phía máy chủ. Vui lòng thử lại sau."},
+        )
+
+
 # CORS: allow the (separate) frontend origin(s) to call this API.
 app.add_middleware(
     CORSMiddleware,
@@ -36,27 +69,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Bắt mọi exception không lường trước (vd lỗi DB) để trả JSON 500 thay vì để
-# Starlette's ServerErrorMiddleware xử lý mặc định. Lý do: handler đăng ký qua
-# @app.exception_handler chạy BÊN TRONG CORSMiddleware, còn phản hồi 500 mặc
-# định của ServerErrorMiddleware nằm NGOÀI CORSMiddleware nên thiếu header CORS
-# -> trình duyệt chặn response, JS thấy "network error"/"failed to fetch" y hệt
-# mất mạng, dù server đã xử lý xong (chỉ là bị lỗi). Người dùng lẫn Mentor debug
-# đều tưởng nhầm là lỗi kết nối trong khi thực chất là lỗi 500 phía server.
-@app.exception_handler(Exception)
-async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    logger.error(
-        "Unhandled exception on %s %s\n%s",
-        request.method,
-        request.url.path,
-        traceback.format_exc(),
-    )
-    return JSONResponse(
-        status_code=500,
-        content={"detail": "Đã xảy ra lỗi phía máy chủ. Vui lòng thử lại sau."},
-    )
-
 
 # All v1 endpoints live under /api/v1.
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
