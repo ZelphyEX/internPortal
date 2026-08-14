@@ -15,7 +15,7 @@ from app.models.assignment import AssignmentStatus, RoadmapAssignment
 from app.models.daily_report import DailyReport, DailyReportStatus
 from app.models.group import Group
 from app.models.roadmap import Roadmap
-from app.models.task import Task, TaskStatus
+from app.models.task import Task, TaskAssignee, TaskStatus
 from app.models.user import Role, User, UserStatus
 from app.schemas.dashboard import (
     DashboardMe,
@@ -42,14 +42,16 @@ def _week_start() -> datetime:
 
 def _my_task_completion_percent(db: Session, user_id: int) -> int:
     total = db.scalar(
-        select(func.count(Task.id)).where(Task.assigned_intern_id == user_id)
+        select(func.count(Task.id))
+        .join(TaskAssignee, TaskAssignee.task_id == Task.id)
+        .where(TaskAssignee.user_id == user_id)
     ) or 0
     if total == 0:
         return 0
     done = db.scalar(
-        select(func.count(Task.id)).where(
-            Task.assigned_intern_id == user_id, Task.status == TaskStatus.DONE,
-        )
+        select(func.count(Task.id))
+        .join(TaskAssignee, TaskAssignee.task_id == Task.id)
+        .where(TaskAssignee.user_id == user_id, Task.status == TaskStatus.DONE)
     ) or 0
     return progress.percent(done, total)
 

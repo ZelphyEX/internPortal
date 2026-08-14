@@ -6,14 +6,20 @@ from pydantic import BaseModel, Field
 from app.models.task import TaskPriority, TaskStatus
 
 
+class TaskAssigneeOut(BaseModel):
+    user_id: int
+    full_name: str
+
+
 class TaskOut(BaseModel):
     id: int
     title: str
     project_id: int | None = None
     project_code: str | None = None
     project_title: str | None = None
-    assigned_intern_id: int | None = None
-    assigned_intern_name: str | None = None
+    # Một task có thể giao cho NHIỀU người — đây vẫn là MỘT task duy nhất, ai
+    # trong danh sách sửa (status, PR url...) là sửa chung, không tách task riêng.
+    assignees: list[TaskAssigneeOut] = []
     mentor_id: int | None = None
     mentor_name: str | None = None
     status: TaskStatus
@@ -30,26 +36,8 @@ class TaskOut(BaseModel):
 class TaskCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     project_id: int | None = None
-    assigned_intern_id: int | None = None
-    # Defaults to the caller when omitted.
-    mentor_id: int | None = None
-    status: TaskStatus = TaskStatus.TODO
-    priority: TaskPriority = TaskPriority.MEDIUM
-    due_date: date | None = None
-    description: str | None = None
-    pr_url: str | None = Field(default=None, max_length=1024)
-
-
-class TaskBulkCreate(BaseModel):
-    """Giao CÙNG một task (tiêu đề/mô tả/độ ưu tiên/hạn) cho NHIỀU người cùng lúc.
-
-    Bảng `tasks` không có quan hệ N-N assignee — mỗi người nhận một BẢN GHI TASK
-    riêng (đúng 1 thẻ Kanban / người, giữ nguyên thiết kế hiện tại), tất cả tạo
-    trong CÙNG một transaction (CLAUDE.md mục 6: thao tác hàng loạt phải atomic).
-    """
-    title: str = Field(min_length=1, max_length=255)
-    project_id: int | None = None
-    assigned_intern_ids: list[int] = Field(min_length=1, max_length=200)
+    # 0, 1, hoặc nhiều người — vd giao cả nhóm/dự án cho cùng một task này.
+    assigned_intern_ids: list[int] = Field(default_factory=list, max_length=500)
     # Defaults to the caller when omitted.
     mentor_id: int | None = None
     status: TaskStatus = TaskStatus.TODO
@@ -63,11 +51,12 @@ class TaskUpdate(BaseModel):
     """PATCH — only provided fields change.
 
     An INTERN may only patch `status` and `pr_url` on their own task; any other
-    field in the payload is rejected with 403.
+    field in the payload — kể cả `assigned_intern_ids` — is rejected with 403.
     """
     title: str | None = Field(default=None, min_length=1, max_length=255)
     project_id: int | None = None
-    assigned_intern_id: int | None = None
+    # Gửi field này là THAY TOÀN BỘ danh sách người nhận (không phải thêm/gộp).
+    assigned_intern_ids: list[int] | None = Field(default=None, max_length=500)
     mentor_id: int | None = None
     status: TaskStatus | None = None
     priority: TaskPriority | None = None

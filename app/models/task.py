@@ -2,8 +2,17 @@
 import enum
 from datetime import date, datetime
 
-from sqlalchemy import BigInteger, Date, DateTime, ForeignKey, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import (
+    BigInteger,
+    Date,
+    DateTime,
+    ForeignKey,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.db.mixins import TimestampMixin
@@ -35,9 +44,6 @@ class Task(TimestampMixin, Base):
     project_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("projects.id"), index=True, nullable=True,
     )
-    assigned_intern_id: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("users.id"), index=True, nullable=True,
-    )
     mentor_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("users.id"), index=True, nullable=True,
     )
@@ -57,4 +63,33 @@ class Task(TimestampMixin, Base):
     # `completed_tasks_this_week` on /dashboard/overview.
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True,
+    )
+
+    # Người nhận task — MỘT task có thể giao cho NHIỀU người (thay cho cột đơn
+    # `assigned_intern_id` trước đây, xem migration bỏ cột đó). Đây vẫn là một
+    # bản ghi Task duy nhất; ai trong `assignees` sửa (vd đổi status) là sửa
+    # chung một task, mọi người còn lại cùng thấy thay đổi ngay.
+    assignees: Mapped[list["TaskAssignee"]] = relationship(
+        "TaskAssignee", cascade="all, delete-orphan", passive_deletes=True,
+        order_by="TaskAssignee.assigned_at",
+    )
+
+
+class TaskAssignee(Base):
+    """N-N: người nhận một task. Xem `Task.assignees`."""
+
+    __tablename__ = "task_assignees"
+    __table_args__ = (
+        UniqueConstraint("task_id", "user_id", name="uq_task_assignees_task_user"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    task_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("tasks.id", ondelete="CASCADE"), index=True, nullable=False,
+    )
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id"), index=True, nullable=False,
+    )
+    assigned_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
     )

@@ -374,7 +374,7 @@ def revoke_for_leaving_member(db: Session, group_id: int, user_id: int) -> tuple
     trong dự án thì KHÔNG gỡ (task sẽ thành mồ côi) — chuyển thành thành viên
     thêm lẻ (`source_group_id = NULL`).
     """
-    from app.models.task import Task
+    from app.models.task import Task, TaskAssignee
 
     from_group = list(
         db.scalars(
@@ -389,9 +389,11 @@ def revoke_for_leaving_member(db: Session, group_id: int, user_id: int) -> tuple
 
     has_tasks = set(
         db.scalars(
-            select(Task.project_id).where(
+            select(Task.project_id)
+            .join(TaskAssignee, TaskAssignee.task_id == Task.id)
+            .where(
                 Task.project_id.in_([m.project_id for m in from_group]),
-                Task.assigned_intern_id == user_id,
+                TaskAssignee.user_id == user_id,
             )
         ).all()
     )

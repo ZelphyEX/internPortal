@@ -18,7 +18,7 @@ from app.core.pagination import (
 )
 from app.models.task import TaskPriority, TaskStatus
 from app.schemas.common import Page
-from app.schemas.task import TaskBulkCreate, TaskCreate, TaskOut, TaskUpdate
+from app.schemas.task import TaskCreate, TaskOut, TaskUpdate
 from app.services import task_service as svc
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -32,7 +32,13 @@ def list_tasks(
     size: SizeQuery = DEFAULT_SIZE,
     project_id: Annotated[int | None, Query()] = None,
     assigned_intern_id: Annotated[
-        int | None, Query(description="MENTOR only; an intern always gets their own tasks")
+        int | None,
+        Query(
+            description=(
+                "MENTOR only; an intern always gets their own tasks. Matches tasks "
+                "where this person is ONE of possibly several assignees."
+            )
+        ),
     ] = None,
     status_: Annotated[TaskStatus | None, Query(alias="status")] = None,
     priority: Annotated[TaskPriority | None, Query()] = None,
@@ -50,21 +56,12 @@ def list_tasks(
 
 @router.post("", response_model=TaskOut, status_code=status.HTTP_201_CREATED)
 def create_task(payload: TaskCreate, db: DbSession, current_user: MentorRequired) -> TaskOut:
-    """MENTOR/ADMIN. `mentor_id` defaults to the caller."""
-    return svc.to_out(db, svc.create_task(db, payload, current_user))
+    """MENTOR/ADMIN. `mentor_id` defaults to the caller.
 
-
-@router.post("/bulk", response_model=list[TaskOut], status_code=status.HTTP_201_CREATED)
-def bulk_create_tasks(
-    payload: TaskBulkCreate, db: DbSession, current_user: MentorRequired,
-) -> list[TaskOut]:
-    """MENTOR/ADMIN. Giao cùng một task cho nhiều người (vd cả nhóm/dự án) cùng lúc.
-
-    Tạo `len(assigned_intern_ids)` task riêng biệt (mỗi người 1 thẻ Kanban) trong
-    một transaction. `mentor_id` mặc định là người gọi.
+    `assigned_intern_ids` nhận 0, 1, hoặc nhiều người (vd cả nhóm/dự án) — tất cả
+    cùng gắn vào MỘT task này, không tách thành nhiều task riêng.
     """
-    tasks = svc.bulk_create_tasks(db, payload, current_user)
-    return svc.to_out_list(db, tasks)
+    return svc.to_out(db, svc.create_task(db, payload, current_user))
 
 
 @router.get("/{task_id}", response_model=TaskOut)
