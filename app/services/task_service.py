@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.models.project import Project
 from app.models.task import Task, TaskPriority, TaskStatus
 from app.models.user import Role, User
-from app.schemas.task import TaskCreate, TaskOut, TaskUpdate
+from app.schemas.task import TaskBulkCreate, TaskCreate, TaskOut, TaskUpdate
 
 # The only fields an intern may change on their own task.
 INTERN_EDITABLE_FIELDS = frozenset({"status", "pr_url"})
@@ -181,6 +181,41 @@ def create_task(db: Session, data: TaskCreate, actor: User) -> Task:
     db.commit()
     db.refresh(t)
     return t
+
+
+def bulk_create_tasks(db: Session, data: TaskBulkCreate, actor: User) -> list[Task]:
+    """Giao cùng một task cho nhiều người: N bản ghi Task riêng biệt, 1 transaction.
+
+    Gửi trùng id trong `assigned_intern_ids` chỉ tạo 1 task cho người đó (khử
+    trùng), không tạo 2 thẻ giống hệt nhau cho cùng một người.
+    """
+    assignee_ids = list(dict.fromkeys(data.assigned_intern_ids))
+    _validate_refs(db, project_id=data.project_id, assigned_intern_id=None, mentor_id=data.mentor_id)
+    for uid in assignee_ids:
+        _validate_refs(db, project_id=None, assigned_intern_id=uid, mentor_id=None)
+
+    mentor_id = data.mentor_id if data.mentor_id is not None else actor.id
+    tasks = [
+        Task(
+            title=data.title,
+            project_id=data.project_id,
+            assigned_intern_id=uid,
+            mentor_id=mentor_id,
+            status=data.status,
+            priority=data.priority,
+            due_date=data.due_date,
+            description=data.description,
+            pr_url=data.pr_url,
+        )
+        for uid in assignee_ids
+    ]
+    for t in tasks:
+        _sync_completed_at(t)
+    db.add_all(tasks)
+    db.commit()
+    for t in tasks:
+        db.refresh(t)
+    return tasks
 
 
 # Columns that are NOT NULL: an explicit `null` means "leave unchanged".

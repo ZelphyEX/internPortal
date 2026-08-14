@@ -40,6 +40,25 @@ class TaskCreate(BaseModel):
     pr_url: str | None = Field(default=None, max_length=1024)
 
 
+class TaskBulkCreate(BaseModel):
+    """Giao CÙNG một task (tiêu đề/mô tả/độ ưu tiên/hạn) cho NHIỀU người cùng lúc.
+
+    Bảng `tasks` không có quan hệ N-N assignee — mỗi người nhận một BẢN GHI TASK
+    riêng (đúng 1 thẻ Kanban / người, giữ nguyên thiết kế hiện tại), tất cả tạo
+    trong CÙNG một transaction (CLAUDE.md mục 6: thao tác hàng loạt phải atomic).
+    """
+    title: str = Field(min_length=1, max_length=255)
+    project_id: int | None = None
+    assigned_intern_ids: list[int] = Field(min_length=1, max_length=200)
+    # Defaults to the caller when omitted.
+    mentor_id: int | None = None
+    status: TaskStatus = TaskStatus.TODO
+    priority: TaskPriority = TaskPriority.MEDIUM
+    due_date: date | None = None
+    description: str | None = None
+    pr_url: str | None = Field(default=None, max_length=1024)
+
+
 class TaskUpdate(BaseModel):
     """PATCH — only provided fields change.
 
