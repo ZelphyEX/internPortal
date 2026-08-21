@@ -78,11 +78,13 @@ Ràng buộc: `page >= 1`, `size` trong khoảng `1..100` (**mặc định 20**)
 > (SĐT, trường, ngành, đơn vị, GitHub) do Mentor bổ sung sau qua
 > `PATCH /users/{id}/profile`.
 >
-> **Tuổi thọ phiên: `REFRESH_TOKEN_EXPIRE_DAYS` (mặc định 1 ngày).** Mọi response
-> cấp token đều kèm `session_expires_at` (ISO 8601 UTC) — hạn **tuyệt đối** tính từ
-> lúc đăng nhập. `/auth/refresh` chỉ cấp access token mới và **không** đẩy mốc này ra
-> xa, nên hết ngày là phải đăng nhập lại dù đang thao tác liên tục. Client nên tự
-> đăng xuất khi tới mốc đó thay vì đợi 401.
+> **Phiên reset vào đúng `SESSION_RESET_HOUR_LOCAL` giờ mỗi ngày** (mặc định 00:00
+> giờ Việt Nam, `SESSION_RESET_UTC_OFFSET_HOURS=7`). Mọi response cấp token đều kèm
+> `session_expires_at` (ISO 8601 UTC) = mốc reset kế tiếp. Đây KHÔNG phải "N ngày kể
+> từ lúc đăng nhập": mọi người cùng bị đăng xuất tại một mốc trong ngày, nên đăng
+> nhập lúc 23:50 thì phiên chỉ còn 10 phút — đúng ý đồ, không phải lỗi.
+> `/auth/refresh` chỉ cấp access token mới và **không** đẩy mốc này ra xa. Client nên
+> tự đăng xuất khi tới mốc đó thay vì đợi 401.
 
 ### POST /auth/register — ⛔ ĐÃ TẮT
 Quyền: công khai. Luôn trả `403`.
@@ -165,8 +167,8 @@ Lỗi: `401` sai email/mật khẩu; `403` nếu không phải ADMIN, tài kho�
 email ngoài tên miền cho phép.
 
 ### POST /auth/refresh — Làm mới access token
-Quyền: công khai (dùng refresh token). Chỉ cấp access token mới; **không** gia hạn
-phiên — refresh token hết hạn (`session_expires_at`) là phải đăng nhập lại.
+Quyền: công khai (dùng refresh token). Chỉ cấp access token mới; **không** đẩy mốc
+reset hằng ngày ra xa — tới `session_expires_at` là phải đăng nhập lại.
 ```json
 // Request
 { "refresh_token": "d9f3..." }

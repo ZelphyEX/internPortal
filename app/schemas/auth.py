@@ -35,9 +35,11 @@ class TokenResponse(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
     user: LoginUser
-    #: Hạn TUYỆT ĐỐI của phiên (ISO 8601 UTC). `/auth/refresh` không gia hạn mốc
-    #: này, nên tới lúc đó là phải đăng nhập lại dù đang thao tác liên tục.
-    #: Client dùng nó để tự đăng xuất, không đợi request lỗi mới biết.
+    #: Mốc reset phiên hằng ngày (ISO 8601 UTC) — mặc định 00:00 giờ Việt Nam,
+    #: nên MỌI phiên cùng hết hạn tại một mốc trong ngày bất kể đăng nhập lúc nào
+    #: (đăng nhập 23:50 thì phiên chỉ còn 10 phút — đúng ý đồ, không phải lỗi).
+    #: `/auth/refresh` không đẩy mốc này ra xa. Client dùng nó để tự đăng xuất,
+    #: không đợi request lỗi mới biết.
     session_expires_at: datetime
 
 

@@ -63,6 +63,11 @@ class ExamAttempt(Base):
     #: Đề (câu hỏi/đáp án đúng/lời giải thích) vẫn nằm ở frontend, cột này chỉ lưu
     #: LỰA CHỌN của người thi để đối chiếu lại với đề tĩnh đó khi xem lại.
     answers: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    #: Số câu người thi tự đánh dấu "xem lại sau" (lá cờ) — [3, 17, 42].
+    #: Không liên quan đúng/sai, chỉ là ghi chú riêng của người làm bài; lưu để
+    #: khi xem lại còn thấy mình đã băn khoăn ở những câu nào.
+    #: Nullable: các lần thi TRƯỚC khi có cột này không có dữ liệu cờ.
+    flagged: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False,

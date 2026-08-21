@@ -28,11 +28,19 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "CHANGE_ME__dev_only_secret__override_in_env"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    # ĐÂY LÀ TUỔI THỌ CỦA MỘT PHIÊN ĐĂNG NHẬP.
-    # `/auth/refresh` chỉ cấp access token mới, KHÔNG gia hạn refresh token — nên
-    # đây là hạn tuyệt đối tính từ lúc đăng nhập, không phải hạn trượt theo hoạt
-    # động. Hết hạn là phải đăng nhập lại, dù đang thao tác liên tục.
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 1
+
+    # --- Tuổi thọ phiên đăng nhập ---
+    # MỌI PHIÊN ĐỀU HẾT HẠN VÀO ĐÚNG `SESSION_RESET_HOUR_LOCAL` GIỜ (giờ địa
+    # phương) MỖI NGÀY — không phải "N ngày kể từ lúc đăng nhập" nữa. Nghĩa là
+    # tất cả mọi người bị đăng xuất tại CÙNG một mốc trong ngày, bất kể ai đăng
+    # nhập lúc nào. Hệ quả cần biết: đăng nhập lúc 23:50 thì phiên chỉ còn 10
+    # phút — đó là đúng ý đồ "reset hằng ngày", không phải lỗi.
+    # `/auth/refresh` vẫn chỉ cấp access token mới, KHÔNG đẩy mốc này ra xa.
+    SESSION_RESET_HOUR_LOCAL: int = 0
+    # Chênh lệch múi giờ địa phương so với UTC, tính theo giờ. Việt Nam = UTC+7
+    # và KHÔNG có giờ mùa hè (DST), nên một offset cố định là đủ và chính xác —
+    # không cần thêm dependency `tzdata` (Windows không có sẵn IANA tz database).
+    SESSION_RESET_UTC_OFFSET_HOURS: int = 7
 
     # --- Đăng nhập bằng Google (Google Identity Services) ---
     # OAuth Consent Screen đang đặt là "External" nên Google cho phép mọi tài khoản

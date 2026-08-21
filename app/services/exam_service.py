@@ -83,6 +83,7 @@ def record_attempt(db: Session, user: User, data: ExamAttemptCreate) -> ExamAtte
         duration_seconds=data.duration_seconds,
         mode=data.mode,
         answers=data.answers,
+        flagged=data.flagged,
     )
     db.add(attempt)
     db.commit()

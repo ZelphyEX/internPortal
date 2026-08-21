@@ -21,6 +21,8 @@ class ExamAttemptCreate(BaseModel):
     #: Đáp án đã chọn theo từng câu — {"<số câu>": ["A", "C"]} — để xem lại sau
     #: này (đề/đáp án đúng/lời giải thích vẫn tĩnh ở frontend, không gửi lên).
     answers: dict[str, list[str]] | None = Field(default=None)
+    #: Số câu người thi tự đánh dấu "xem lại sau" (lá cờ) — [3, 17, 42].
+    flagged: list[int] | None = Field(default=None)
 
 
 class ExamAttemptOut(BaseModel):
@@ -39,6 +41,8 @@ class ExamAttemptOut(BaseModel):
     mode: str
     #: `None` cho các lần thi trước khi có cột này — không xem lại chi tiết được.
     answers: dict[str, list[str]] | None = None
+    #: `None` cho các lần thi trước khi có cột này (cờ chưa từng được gửi lên).
+    flagged: list[int] | None = None
     created_at: datetime
 
 

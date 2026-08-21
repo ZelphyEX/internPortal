@@ -146,7 +146,25 @@ def verify_refresh_token(raw_token: str, token_hash: str) -> bool:
 
 
 def refresh_token_expires_at() -> datetime:
-    """UTC expiry timestamp for a newly issued refresh token."""
-    return datetime.now(timezone.utc) + timedelta(
-        days=settings.REFRESH_TOKEN_EXPIRE_DAYS
+    """Mốc hết hạn phiên: lần tới đồng hồ địa phương chạm giờ reset, quy về UTC.
+
+    Phiên KHÔNG còn sống "N ngày kể từ lúc đăng nhập" — mọi phiên cùng hết hạn
+    vào đúng `SESSION_RESET_HOUR_LOCAL` giờ (mặc định 00:00) theo giờ địa phương
+    (`SESSION_RESET_UTC_OFFSET_HOURS`, mặc định UTC+7 = Việt Nam) mỗi ngày.
+
+    Hệ quả cố ý: đăng nhập 23:50 thì phiên chỉ còn 10 phút. Đó là đúng ý đồ
+    "reset hằng ngày vào nửa đêm", không phải lỗi tính toán.
+
+    Luôn trả về một mốc trong TƯƠNG LAI: nếu ngay lúc này đã qua giờ reset của
+    hôm nay (trường hợp thường gặp nhất) thì lấy mốc của ngày kế tiếp. Nếu tính
+    ra mốc bằng đúng hiện tại (đăng nhập ngay giây reset) cũng đẩy sang ngày sau
+    — cấp một phiên đã hết hạn ngay lúc sinh ra thì người dùng không đăng nhập
+    được, đăng nhập xong là bị đá ra ngay.
+    """
+    local_tz = timezone(timedelta(hours=settings.SESSION_RESET_UTC_OFFSET_HOURS))
+    now_local = datetime.now(timezone.utc).astimezone(local_tz)
+    reset_today = now_local.replace(
+        hour=settings.SESSION_RESET_HOUR_LOCAL, minute=0, second=0, microsecond=0
     )
+    next_reset = reset_today if reset_today > now_local else reset_today + timedelta(days=1)
+    return next_reset.astimezone(timezone.utc)
