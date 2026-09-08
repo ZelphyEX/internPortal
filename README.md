@@ -1,7 +1,7 @@
 # Intern Portal — Backend (FastAPI)
 
 Backend-only. Quản lý thực tập sinh, lộ trình học, tiến độ. 3 role: `ADMIN > MENTOR > INTERN`.
-Nguồn sự thật API: [`docs/API_SPEC.md`](docs/API_SPEC.md). Quy ước dự án: [`CLAUDE.md`](CLAUDE.md).
+Nguồn sự thật API là: [`docs/API_SPEC.md`](docs/API_SPEC.md). Quy ước dự án: [`CLAUDE.md`](CLAUDE.md).
 
 ---
 
